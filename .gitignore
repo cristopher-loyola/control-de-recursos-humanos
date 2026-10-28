@@ -1,4 +1,6 @@
 node_modules/
+apps/api/src/generated/prisma/
+*.tsbuildinfo
 .pnpm-store/
 dist/
 coverage/
