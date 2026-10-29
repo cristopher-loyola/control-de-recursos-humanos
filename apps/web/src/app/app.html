@@ -1,0 +1,35 @@
+<main class="page">
+  <header>
+    <p class="eyebrow">Panel administrativo</p>
+    <h1>Control de Recursos Humanos</h1>
+    <p class="intro">Comprueba la disponibilidad del sistema.</p>
+  </header>
+
+  <section class="connection-card" aria-labelledby="connection-heading">
+    <h2 id="connection-heading">Estado de conexión</h2>
+    <div class="connection-status" role="status" aria-live="polite" aria-atomic="true">
+      @switch (connectionState()) {
+        @case ('available') {
+          <p class="status-label success">Sistema disponible</p>
+          <p>La conexión con el servidor y la base de datos funciona correctamente.</p>
+        }
+        @case ('database-unavailable') {
+          <p class="status-label error">Base de datos no disponible</p>
+          <p>El servidor responde, pero no pudo consultar la base de datos. Intenta nuevamente.</p>
+        }
+        @case ('unavailable') {
+          <p class="status-label error">No se pudo verificar la conexión</p>
+          <p>El servicio no respondió correctamente. Comprueba que esté iniciado y vuelve a intentar.</p>
+        }
+        @default {
+          <p class="status-label">Comprobando conexión…</p>
+          <p>Espera mientras consultamos el estado del sistema.</p>
+        }
+      }
+    </div>
+    <button type="button" (click)="checkConnection()" [disabled]="connectionState() === 'checking'">
+      {{ connectionState() === 'checking' ? 'Comprobando…' : 'Volver a comprobar' }}
+    </button>
+  </section>
+  <router-outlet />
+</main>
