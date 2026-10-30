@@ -14,6 +14,24 @@ class AuthenticationError implements Exception {
   final String message;
 }
 
+Uint8List _newSalt() {
+  final random = Random.secure();
+  return Uint8List.fromList(List.generate(16, (_) => random.nextInt(256)));
+}
+
+String _newRecoveryCode() {
+  final random = Random.secure();
+  final bytes = List.generate(16, (_) => random.nextInt(256));
+  final hex = bytes
+      .map((value) => value.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 16)}-${hex.substring(16, 24)}-${hex.substring(24)}'
+      .toUpperCase();
+}
+
+String _normalizeRecoveryCode(String value) =>
+    value.replaceAll(RegExp(r'[\s-]'), '').toLowerCase();
+
 String? validateAdminUsername(String? value) {
   if (!RegExp(r'^[a-zA-Z0-9._-]{3,40}$').hasMatch(value?.trim() ?? '')) {
     return 'Usa de 3 a 40 letras, números, puntos, guiones o guiones bajos.';
@@ -43,12 +61,21 @@ class AdminAuth extends ChangeNotifier {
   bool _authenticated = false;
   bool _busy = false;
   bool _disposed = false;
+  String? _pendingRecoveryCode;
   DateTime? _expiresAt;
   Timer? _timer;
   static const idleDuration = Duration(minutes: 10);
 
   bool get configured => _configured;
   bool get isAuthenticated => _authenticated;
+  String? get pendingRecoveryCode => _pendingRecoveryCode;
+
+  void acknowledgeRecoveryCode() {
+    if (_pendingRecoveryCode == null) return;
+    _pendingRecoveryCode = null;
+    if (!_disposed) notifyListeners();
+  }
+
   String get administratorName {
     requireAdmin();
     return _accountName!;
@@ -86,6 +113,14 @@ class AdminAuth extends ChangeNotifier {
         List.generate(16, (_) => random.nextInt(256)),
       );
       final hash = Uint8List.fromList(await _hasher.derive(password, salt));
+      final recoveryCode = _newRecoveryCode();
+      final recoverySalt = _newSalt();
+      final recoveryHash = Uint8List.fromList(
+        await _hasher.derive(
+          _normalizeRecoveryCode(recoveryCode),
+          recoverySalt,
+        ),
+      );
       await db.transaction((txn) async {
         if ((await txn.query(
           'administrator',
@@ -109,10 +144,13 @@ class AdminAuth extends ChangeNotifier {
           'password_hash': hash,
           'algorithm': PasswordHasher.algorithm,
           'iterations': PasswordHasher.iterations,
+          'recovery_salt': recoverySalt,
+          'recovery_hash': recoveryHash,
         });
       });
       _configured = true;
       _accountName = username.trim().toLowerCase();
+      _pendingRecoveryCode = recoveryCode;
       _grant();
     } finally {
       _busy = false;
@@ -191,6 +229,123 @@ class AdminAuth extends ChangeNotifier {
     }
   }
 
+  Future<void> rotateRecoveryCode() async {
+    requireAdmin();
+    _begin();
+    try {
+      final code = _newRecoveryCode();
+      final salt = _newSalt();
+      final hash = Uint8List.fromList(
+        await _hasher.derive(_normalizeRecoveryCode(code), salt),
+      );
+      final db = await database.open();
+      await db.transaction((txn) async {
+        await txn.update('administrator', {
+          'recovery_salt': salt,
+          'recovery_hash': hash,
+        }, where: 'id = 1');
+        await writeAudit(
+          txn,
+          action: AuditAction.recoveryCodeRotated,
+          actor: _accountName,
+          time: _clock(),
+        );
+      });
+      _pendingRecoveryCode = code;
+      if (!_disposed) notifyListeners();
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> recover(String code, String newPassword) async {
+    _begin();
+    try {
+      final validation = validateAdminPassword(newPassword);
+      if (validation != null) throw AuthenticationError(validation);
+      final db = await database.open();
+      final rows = await db.query('administrator', where: 'id = 1');
+      if (rows.isEmpty) {
+        throw const AuthenticationError('No se pudo recuperar el acceso.');
+      }
+      final row = rows.single;
+      final now = _clock();
+      final lockedUntil = row['locked_until'] as int;
+      if (lockedUntil > now.millisecondsSinceEpoch) {
+        throw const AuthenticationError(
+          'Demasiados intentos. Espera un minuto y vuelve a intentarlo.',
+        );
+      }
+      final normalized = _normalizeRecoveryCode(code);
+      final savedSalt = (row['recovery_salt'] as List?)?.cast<int>();
+      final savedHash = (row['recovery_hash'] as List?)?.cast<int>();
+      final validFormat = RegExp(r'^[0-9a-f]{32}$').hasMatch(normalized);
+      final validStored = savedSalt?.length == 16 && savedHash?.length == 32;
+      final actual = validFormat && validStored
+          ? await _hasher.derive(normalized, savedSalt!)
+          : <int>[];
+      if (!validFormat ||
+          !validStored ||
+          !PasswordHasher.equal(actual, savedHash!)) {
+        final attempts =
+            (lockedUntil != 0 ? 0 : row['failed_attempts'] as int) + 1;
+        await db.transaction((txn) async {
+          await txn.update('administrator', {
+            'failed_attempts': attempts,
+            'locked_until': attempts >= 5
+                ? now.add(const Duration(minutes: 1)).millisecondsSinceEpoch
+                : 0,
+          }, where: 'id = 1');
+          await writeAudit(
+            txn,
+            action: AuditAction.passwordRecoveryFailed,
+            details: {'blocked': attempts >= 5},
+            time: now,
+          );
+        });
+        throw AuthenticationError(
+          attempts >= 5
+              ? 'Demasiados intentos. Espera un minuto y vuelve a intentarlo.'
+              : 'Código de recuperación incorrecto.',
+        );
+      }
+      final passwordSalt = _newSalt();
+      final passwordHash = Uint8List.fromList(
+        await _hasher.derive(newPassword, passwordSalt),
+      );
+      final replacementCode = _newRecoveryCode();
+      final replacementSalt = _newSalt();
+      final replacementHash = Uint8List.fromList(
+        await _hasher.derive(
+          _normalizeRecoveryCode(replacementCode),
+          replacementSalt,
+        ),
+      );
+      await db.transaction((txn) async {
+        await txn.update('administrator', {
+          'salt': passwordSalt,
+          'password_hash': passwordHash,
+          'recovery_salt': replacementSalt,
+          'recovery_hash': replacementHash,
+          'failed_attempts': 0,
+          'locked_until': 0,
+        }, where: 'id = 1');
+        await writeAudit(
+          txn,
+          action: AuditAction.passwordRecovered,
+          actor: row['username'] as String,
+          time: now,
+        );
+      });
+      _accountName = row['username'] as String;
+      _configured = true;
+      _pendingRecoveryCode = replacementCode;
+      _grant();
+    } finally {
+      _busy = false;
+    }
+  }
+
   void _begin() {
     if (_busy || _disposed) {
       throw const AuthenticationError(
@@ -238,6 +393,7 @@ class AdminAuth extends ChangeNotifier {
     _expiresAt = null;
     final changed = _authenticated;
     _authenticated = false;
+    _pendingRecoveryCode = null;
     if (changed && !_disposed) {
       notifyListeners();
     }

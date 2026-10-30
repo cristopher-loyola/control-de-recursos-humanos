@@ -11,12 +11,14 @@ class EmployeesPage extends StatefulWidget {
     this.onOpenBackup,
     this.onLogout,
     this.onOpenAudit,
+    this.onRotateRecoveryCode,
   });
   final EmployeeStore store;
   final VoidCallback? onOpenAttendance;
   final Future<void> Function()? onOpenBackup;
   final VoidCallback? onLogout;
   final VoidCallback? onOpenAudit;
+  final Future<void> Function()? onRotateRecoveryCode;
 
   @override
   State<EmployeesPage> createState() => _EmployeesPageState();
@@ -29,6 +31,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   List<Employee> _employees = [];
   bool _loading = true;
   bool _saving = false;
+  bool _rotatingRecoveryCode = false;
   String? _loadError;
   String? _message;
 
@@ -109,6 +112,29 @@ class _EmployeesPageState extends State<EmployeesPage> {
     appBar: AppBar(
       title: const Text('Control de Recursos Humanos'),
       actions: [
+        if (widget.onRotateRecoveryCode != null)
+          IconButton(
+            tooltip: 'Generar nuevo código de recuperación',
+            icon: const Icon(Icons.key_outlined),
+            onPressed: _saving || _loading || _rotatingRecoveryCode
+                ? null
+                : () async {
+                    setState(() => _rotatingRecoveryCode = true);
+                    try {
+                      await widget.onRotateRecoveryCode!();
+                    } catch (_) {
+                      if (mounted) {
+                        setState(
+                          () => _message = 'No se pudo generar el código. Vuelve a intentarlo.',
+                        );
+                      }
+                    } finally {
+                      if (mounted) {
+                        setState(() => _rotatingRecoveryCode = false);
+                      }
+                    }
+                  },
+          ),
         if (widget.onOpenAudit != null)
           IconButton(
             onPressed: _saving || _loading ? null : widget.onOpenAudit,

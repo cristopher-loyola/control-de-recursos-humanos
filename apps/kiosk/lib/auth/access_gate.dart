@@ -8,6 +8,7 @@ import '../employees/employee_store.dart';
 import '../employees/employees_page.dart';
 import 'admin_auth.dart';
 import 'admin_login_page.dart';
+import 'recovery_code_page.dart';
 import '../audit/audit_page.dart';
 import '../audit/audit_store.dart';
 
@@ -113,9 +114,18 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
           builder: (context, _) {
             final auth = widget.auth;
             return Navigator(
-              key: ValueKey('${auth.configured}-${auth.isAuthenticated}'),
+              key: ValueKey(
+                '${auth.configured}-${auth.isAuthenticated}-${auth.pendingRecoveryCode != null}',
+              ),
               onGenerateRoute: (_) => MaterialPageRoute<void>(
                 builder: (context) {
+                  final recoveryCode = auth.pendingRecoveryCode;
+                  if (recoveryCode != null) {
+                    return RecoveryCodePage(
+                      code: recoveryCode,
+                      onContinue: auth.acknowledgeRecoveryCode,
+                    );
+                  }
                   if (!auth.configured) {
                     return AdminLoginPage(auth: auth, setup: true);
                   }
@@ -133,6 +143,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                   }
                   return EmployeesPage(
                     store: widget.employees,
+                    onRotateRecoveryCode: auth.rotateRecoveryCode,
                     onOpenAudit: widget.audit == null
                         ? null
                         : () => Navigator.of(context).push(

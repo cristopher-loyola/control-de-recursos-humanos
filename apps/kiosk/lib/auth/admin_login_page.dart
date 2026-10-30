@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'admin_auth.dart';
+import 'admin_recovery_page.dart';
 
 class AdminLoginPage extends StatefulWidget {
   const AdminLoginPage({super.key, required this.auth, required this.setup});
@@ -160,7 +161,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         ),
                         const SizedBox(height: 12),
                         const Text(
-                          'Guarda tus credenciales en un lugar seguro. La recuperación de contraseña aún no está disponible.',
+                          'Al crear la cuenta recibirás un código de recuperación. Guárdalo fuera de la tablet para poder cambiar la contraseña sin internet.',
                         ),
                       ],
                       if (_error != null)
@@ -187,6 +188,20 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                               : 'Entrar',
                         ),
                       ),
+                      if (!widget.setup) ...[
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        AdminRecoveryPage(auth: widget.auth),
+                                  ),
+                                ),
+                          child: const Text('¿Olvidaste la contraseña?'),
+                        ),
+                      ],
                     ],
                   ),
                 ),

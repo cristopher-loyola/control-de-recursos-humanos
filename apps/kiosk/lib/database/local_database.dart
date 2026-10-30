@@ -22,7 +22,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 5,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await db.execute('''
@@ -45,6 +45,14 @@ class LocalDatabase {
           }
           if (oldVersion < 4) {
             await _createAudit(db);
+          }
+          if (oldVersion >= 3 && oldVersion < 5) {
+            await db.execute(
+              'ALTER TABLE administrator ADD COLUMN recovery_salt BLOB',
+            );
+            await db.execute(
+              'ALTER TABLE administrator ADD COLUMN recovery_hash BLOB',
+            );
           }
         },
       ),
@@ -78,7 +86,9 @@ class LocalDatabase {
         algorithm TEXT NOT NULL,
         iterations INTEGER NOT NULL,
         failed_attempts INTEGER NOT NULL DEFAULT 0,
-        locked_until INTEGER NOT NULL DEFAULT 0
+        locked_until INTEGER NOT NULL DEFAULT 0,
+        recovery_salt BLOB,
+        recovery_hash BLOB
       )
     ''');
   }

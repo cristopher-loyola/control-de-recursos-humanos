@@ -8,6 +8,15 @@ enum AuditAction {
   administratorCreated('administrator_created', 'Administrador configurado'),
   loginSucceeded('login_succeeded', 'Acceso de administrador'),
   loginFailed('login_failed', 'Intento de acceso rechazado'),
+  recoveryCodeRotated(
+    'recovery_code_rotated',
+    'Código de recuperación renovado',
+  ),
+  passwordRecoveryFailed(
+    'password_recovery_failed',
+    'Intento de recuperación rechazado',
+  ),
+  passwordRecovered('password_recovered', 'Contraseña recuperada'),
   employeeCreated('employee_created', 'Empleado registrado'),
   backupExported('backup_exported', 'Respaldo exportado'),
   backupRestored('backup_restored', 'Respaldo restaurado');
@@ -70,6 +79,14 @@ class AuditEntry {
         return details['blocked'] == true
             ? 'Acceso bloqueado temporalmente por intentos fallidos.'
             : 'Credenciales incorrectas.';
+      case AuditAction.recoveryCodeRotated:
+        return 'Se generó un código de recuperación nuevo.';
+      case AuditAction.passwordRecoveryFailed:
+        return details['blocked'] == true
+            ? 'Recuperación bloqueada temporalmente por intentos fallidos.'
+            : 'Código de recuperación incorrecto.';
+      case AuditAction.passwordRecovered:
+        return 'Contraseña administrativa cambiada con código de recuperación.';
       case AuditAction.administratorCreated:
         return 'Cuenta local creada en esta tablet.';
       case AuditAction.loginSucceeded:
