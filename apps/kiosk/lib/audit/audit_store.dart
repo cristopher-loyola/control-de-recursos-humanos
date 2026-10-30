@@ -6,6 +6,8 @@ import '../database/local_database.dart';
 
 enum AuditAction {
   administratorCreated('administrator_created', 'Administrador configurado'),
+  rhAccountCreated('rh_account_created', 'Cuenta de RH creada'),
+  organizationConfigured('organization_configured', 'Organización configurada'),
   loginSucceeded('login_succeeded', 'Acceso de administrador'),
   loginFailed('login_failed', 'Intento de acceso rechazado'),
   recoveryCodeRotated(
@@ -89,6 +91,10 @@ class AuditEntry {
         return 'Contraseña administrativa cambiada con código de recuperación.';
       case AuditAction.administratorCreated:
         return 'Cuenta local creada en esta tablet.';
+      case AuditAction.rhAccountCreated:
+        return 'Cuenta de RH creada: ${details['username']}';
+      case AuditAction.organizationConfigured:
+        return 'Organización configurada en esta tablet.';
       case AuditAction.loginSucceeded:
         return 'Sesión administrativa iniciada.';
     }

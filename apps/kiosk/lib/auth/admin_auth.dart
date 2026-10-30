@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../database/local_database.dart';
 import '../audit/audit_store.dart';
 import 'password_hasher.dart';
 
 class AdminAccessRequired implements Exception {}
+
+enum LocalRole { administrator, humanResources }
 
 class AuthenticationError implements Exception {
   const AuthenticationError(this.message);
@@ -57,8 +60,10 @@ class AdminAuth extends ChangeNotifier {
   final PasswordHasher _hasher;
   final DateTime Function() _clock;
   bool _configured = false;
+  bool _organizationConfigured = false;
   String? _accountName;
   bool _authenticated = false;
+  LocalRole? _role;
   bool _busy = false;
   bool _disposed = false;
   String? _pendingRecoveryCode;
@@ -67,7 +72,17 @@ class AdminAuth extends ChangeNotifier {
   static const idleDuration = Duration(minutes: 10);
 
   bool get configured => _configured;
+  bool get organizationConfigured => _organizationConfigured;
   bool get isAuthenticated => _authenticated;
+  bool get isAdministrator =>
+      _authenticated && _role == LocalRole.administrator;
+  bool get isHumanResources =>
+      _authenticated && _role == LocalRole.humanResources;
+  String get accountName {
+    requireStaff();
+    return _accountName!;
+  }
+
   String? get pendingRecoveryCode => _pendingRecoveryCode;
 
   void acknowledgeRecoveryCode() {
@@ -88,6 +103,12 @@ class AdminAuth extends ChangeNotifier {
       limit: 1,
     );
     _configured = rows.isNotEmpty;
+    final organizations = await (await database.open()).query(
+      'organization',
+      columns: ['id'],
+      limit: 1,
+    );
+    _organizationConfigured = organizations.isNotEmpty;
   }
 
   Future<void> create(String username, String password) async {
@@ -150,6 +171,7 @@ class AdminAuth extends ChangeNotifier {
       });
       _configured = true;
       _accountName = username.trim().toLowerCase();
+      _role = LocalRole.administrator;
       _pendingRecoveryCode = recoveryCode;
       _grant();
     } finally {
@@ -164,6 +186,16 @@ class AdminAuth extends ChangeNotifier {
         throw const AuthenticationError('Usuario o contraseña incorrectos.');
       }
       final db = await database.open();
+      final rhRows = await db.query(
+        'rh_accounts',
+        where: 'username = ? COLLATE NOCASE',
+        whereArgs: [username.trim()],
+        limit: 1,
+      );
+      if (rhRows.isNotEmpty) {
+        await _loginRh(db, rhRows.single, password);
+        return;
+      }
       final rows = await db.query('administrator', where: 'id = 1');
       if (rows.isEmpty) {
         throw const AuthenticationError('Primero configura el administrador.');
@@ -217,6 +249,7 @@ class AdminAuth extends ChangeNotifier {
       }, where: 'id = 1');
       _configured = true;
       _accountName = row['username'] as String;
+      _role = LocalRole.administrator;
       await writeAudit(
         db,
         action: AuditAction.loginSucceeded,
@@ -224,6 +257,162 @@ class AdminAuth extends ChangeNotifier {
         time: _clock(),
       );
       _grant();
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> _loginRh(
+    Database db,
+    Map<String, Object?> row,
+    String password,
+  ) async {
+    final now = _clock();
+    final lockedUntil = row['locked_until'] as int;
+    if (lockedUntil > now.millisecondsSinceEpoch) {
+      throw const AuthenticationError(
+        'Demasiados intentos. Espera un minuto y vuelve a intentarlo.',
+      );
+    }
+    if (row['algorithm'] != PasswordHasher.algorithm ||
+        row['iterations'] != PasswordHasher.iterations) {
+      throw const AuthenticationError(
+        'No se pudo verificar la configuración de acceso.',
+      );
+    }
+    final salt = (row['salt'] as List).cast<int>();
+    final expected = (row['password_hash'] as List).cast<int>();
+    if (salt.length != 16 || expected.length != 32) {
+      throw const AuthenticationError(
+        'No se pudo verificar la configuración de acceso.',
+      );
+    }
+    final actual = await _hasher.derive(password, salt);
+    if (!PasswordHasher.equal(actual, expected)) {
+      final attempts =
+          (lockedUntil != 0 ? 0 : row['failed_attempts'] as int) + 1;
+      await db.transaction((txn) async {
+        await txn.update(
+          'rh_accounts',
+          {
+            'failed_attempts': attempts,
+            'locked_until': attempts >= 5
+                ? now.add(const Duration(minutes: 1)).millisecondsSinceEpoch
+                : 0,
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        await writeAudit(
+          txn,
+          action: AuditAction.loginFailed,
+          details: {'role': 'rh', 'blocked': attempts >= 5},
+          time: now,
+        );
+      });
+      throw AuthenticationError(
+        attempts >= 5
+            ? 'Demasiados intentos. Espera un minuto y vuelve a intentarlo.'
+            : 'Usuario o contraseña incorrectos.',
+      );
+    }
+    await db.transaction((txn) async {
+      await txn.update(
+        'rh_accounts',
+        {'failed_attempts': 0, 'locked_until': 0},
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+      await writeAudit(
+        txn,
+        action: AuditAction.loginSucceeded,
+        actor: row['username'] as String,
+        details: {'role': 'rh'},
+        time: now,
+      );
+    });
+    _configured = true;
+    _accountName = row['username'] as String;
+    _role = LocalRole.humanResources;
+    _grant();
+  }
+
+  Future<void> saveOrganization(String name) async {
+    requireAdmin();
+    _begin();
+    try {
+      final normalized = name.trim();
+      if (normalized.length < 2 || normalized.length > 120) {
+        throw const AuthenticationError(
+          'Escribe un nombre de 2 a 120 caracteres.',
+        );
+      }
+      final db = await database.open();
+      await db.transaction((txn) async {
+        await txn.insert('organization', {
+          'id': 1,
+          'name': normalized,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await writeAudit(
+          txn,
+          action: AuditAction.organizationConfigured,
+          actor: _accountName,
+          time: _clock(),
+        );
+      });
+      _organizationConfigured = true;
+      if (!_disposed) notifyListeners();
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> createRhAccount(String username, String password) async {
+    requireAdmin();
+    if (!_organizationConfigured) {
+      throw const AuthenticationError('Configura primero la organización.');
+    }
+    _begin();
+    try {
+      final validation =
+          validateAdminUsername(username) ?? validateAdminPassword(password);
+      if (validation != null) throw AuthenticationError(validation);
+      final normalized = username.trim().toLowerCase();
+      final db = await database.open();
+      final administrator = await db.query(
+        'administrator',
+        columns: ['username'],
+        where: 'id = 1',
+      );
+      if (administrator.isNotEmpty &&
+          administrator.single['username'] == normalized) {
+        throw const AuthenticationError('Ese usuario ya existe.');
+      }
+      final salt = _newSalt();
+      final hash = Uint8List.fromList(await _hasher.derive(password, salt));
+      try {
+        await db.transaction((txn) async {
+          await txn.insert('rh_accounts', {
+            'username': normalized,
+            'salt': salt,
+            'password_hash': hash,
+            'algorithm': PasswordHasher.algorithm,
+            'iterations': PasswordHasher.iterations,
+          });
+          await writeAudit(
+            txn,
+            action: AuditAction.rhAccountCreated,
+            actor: _accountName,
+            details: {'username': normalized},
+            time: _clock(),
+          );
+        });
+      } on DatabaseException catch (error) {
+        if (error.isUniqueConstraintError()) {
+          throw const AuthenticationError('Ese usuario ya existe.');
+        }
+        rethrow;
+      }
     } finally {
       _busy = false;
     }
@@ -340,6 +529,7 @@ class AdminAuth extends ChangeNotifier {
       _accountName = row['username'] as String;
       _configured = true;
       _pendingRecoveryCode = replacementCode;
+      _role = LocalRole.administrator;
       _grant();
     } finally {
       _busy = false;
@@ -379,11 +569,18 @@ class AdminAuth extends ChangeNotifier {
     _timer = Timer(idleDuration, logout);
   }
 
-  void requireAdmin() {
+  void requireStaff() {
     if (!_authenticated ||
         _expiresAt == null ||
         !_clock().isBefore(_expiresAt!)) {
       logout();
+      throw AdminAccessRequired();
+    }
+  }
+
+  void requireAdmin() {
+    requireStaff();
+    if (_role != LocalRole.administrator) {
       throw AdminAccessRequired();
     }
   }
@@ -393,6 +590,7 @@ class AdminAuth extends ChangeNotifier {
     _expiresAt = null;
     final changed = _authenticated;
     _authenticated = false;
+    _role = null;
     _pendingRecoveryCode = null;
     if (changed && !_disposed) {
       notifyListeners();

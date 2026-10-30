@@ -9,6 +9,8 @@ import '../employees/employees_page.dart';
 import 'admin_auth.dart';
 import 'admin_login_page.dart';
 import 'recovery_code_page.dart';
+import 'rh_account_page.dart';
+import 'organization_setup_page.dart';
 import '../audit/audit_page.dart';
 import '../audit/audit_store.dart';
 
@@ -115,7 +117,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
             final auth = widget.auth;
             return Navigator(
               key: ValueKey(
-                '${auth.configured}-${auth.isAuthenticated}-${auth.pendingRecoveryCode != null}',
+                '${auth.configured}-${auth.isAuthenticated}-${auth.organizationConfigured}-${auth.isAdministrator}-${auth.pendingRecoveryCode != null}',
               ),
               onGenerateRoute: (_) => MaterialPageRoute<void>(
                 builder: (context) {
@@ -141,10 +143,43 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                       ),
                     );
                   }
+                  if (!auth.organizationConfigured) {
+                    if (auth.isAdministrator) {
+                      return OrganizationSetupPage(auth: auth);
+                    }
+                    return Scaffold(
+                      appBar: AppBar(
+                        title: const Text('Configuración pendiente'),
+                      ),
+                      body: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Pide al administrador que configure la organización.',
+                            ),
+                            TextButton(
+                              onPressed: auth.logout,
+                              child: const Text('Volver al checador'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
                   return EmployeesPage(
                     store: widget.employees,
-                    onRotateRecoveryCode: auth.rotateRecoveryCode,
-                    onOpenAudit: widget.audit == null
+                    onRotateRecoveryCode: auth.isAdministrator
+                        ? auth.rotateRecoveryCode
+                        : null,
+                    onCreateRhAccount: auth.isAdministrator
+                        ? () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => RhAccountPage(auth: auth),
+                            ),
+                          )
+                        : null,
+                    onOpenAudit: !auth.isAdministrator || widget.audit == null
                         ? null
                         : () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
@@ -160,14 +195,17 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                    onOpenBackup: () async {
-                      auth.requireAdmin();
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => BackupPage(service: widget.backups),
-                        ),
-                      );
-                    },
+                    onOpenBackup: auth.isAdministrator
+                        ? () async {
+                            auth.requireAdmin();
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    BackupPage(service: widget.backups),
+                              ),
+                            );
+                          }
+                        : null,
                   );
                 },
               ),

@@ -10,13 +10,19 @@ import 'package:kiosk/employees/employee_store.dart';
 class MemoryAuth extends AdminAuth {
   MemoryAuth({bool configured = true})
     : _hasAccount = configured,
+      _hasOrganization = configured,
       super(LocalDatabase());
   bool _hasAccount;
+  bool _hasOrganization;
   bool _active = false;
   @override
   bool get configured => _hasAccount;
   @override
   bool get isAuthenticated => _active;
+  @override
+  bool get isAdministrator => _active;
+  @override
+  bool get organizationConfigured => _hasOrganization;
   @override
   Future<void> initialize() async {}
   @override
@@ -32,6 +38,12 @@ class MemoryAuth extends AdminAuth {
       throw const AuthenticationError('Usuario o contraseña incorrectos.');
     }
     _active = true;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> saveOrganization(String name) async {
+    _hasOrganization = true;
     notifyListeners();
   }
 
@@ -134,6 +146,10 @@ void main() {
     await tester.enterText(fields.at(2), 'Una frase segura');
     await tapFormButton(tester, 'Crear administrador');
     expect(auth.configured, isTrue);
+    expect(find.text('Configurar organización'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField), 'Organización piloto');
+    await tapFormButton(tester, 'Guardar organización');
+    expect(auth.organizationConfigured, isTrue);
     expect(find.text('Guardar empleado'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     auth.dispose();

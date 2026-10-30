@@ -22,7 +22,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 5,
+        version: 7,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await db.execute('''
@@ -35,6 +35,8 @@ class LocalDatabase {
           await _createAttendance(db);
           await _createAdmin(db);
           await _createAudit(db);
+          await _createRhAccounts(db);
+          await _createOrganization(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -45,6 +47,12 @@ class LocalDatabase {
           }
           if (oldVersion < 4) {
             await _createAudit(db);
+          }
+          if (oldVersion < 6) {
+            await _createRhAccounts(db);
+          }
+          if (oldVersion < 7) {
+            await _createOrganization(db);
           }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
@@ -110,6 +118,30 @@ class LocalDatabase {
     await db.execute('''
       CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit_entries
       BEGIN SELECT RAISE(ABORT, 'Audit entries cannot be deleted'); END
+    ''');
+  }
+
+  static Future<void> _createRhAccounts(Database db) async {
+    await db.execute('''
+      CREATE TABLE rh_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        salt BLOB NOT NULL,
+        password_hash BLOB NOT NULL,
+        algorithm TEXT NOT NULL,
+        iterations INTEGER NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  static Future<void> _createOrganization(Database db) async {
+    await db.execute('''
+      CREATE TABLE organization (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 2 AND 120)
+      )
     ''');
   }
 

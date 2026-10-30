@@ -12,6 +12,7 @@ class EmployeesPage extends StatefulWidget {
     this.onLogout,
     this.onOpenAudit,
     this.onRotateRecoveryCode,
+    this.onCreateRhAccount,
   });
   final EmployeeStore store;
   final VoidCallback? onOpenAttendance;
@@ -19,6 +20,7 @@ class EmployeesPage extends StatefulWidget {
   final VoidCallback? onLogout;
   final VoidCallback? onOpenAudit;
   final Future<void> Function()? onRotateRecoveryCode;
+  final VoidCallback? onCreateRhAccount;
 
   @override
   State<EmployeesPage> createState() => _EmployeesPageState();
@@ -112,6 +114,12 @@ class _EmployeesPageState extends State<EmployeesPage> {
     appBar: AppBar(
       title: const Text('Control de Recursos Humanos'),
       actions: [
+        if (widget.onCreateRhAccount != null)
+          IconButton(
+            tooltip: 'Crear cuenta de RH',
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+            onPressed: _saving || _loading ? null : widget.onCreateRhAccount,
+          ),
         if (widget.onRotateRecoveryCode != null)
           IconButton(
             tooltip: 'Generar nuevo código de recuperación',

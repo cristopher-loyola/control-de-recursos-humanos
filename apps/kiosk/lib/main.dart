@@ -30,8 +30,8 @@ class MyApp extends StatelessWidget {
       auth: auth,
       employees: EmployeeStore(
         database: database,
-        authorize: auth.requireAdmin,
-        actor: () => auth.administratorName,
+        authorize: auth.requireStaff,
+        actor: () => auth.accountName,
       ),
       attendance: AttendanceStore(database),
       backups: BackupService(
