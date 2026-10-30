@@ -19,6 +19,7 @@ class _BackupPageState extends State<BackupPage> {
   String? _message;
 
   Future<void> _export() async {
+    var savedFile = false;
     if (_busy) {
       return;
     }
@@ -27,7 +28,8 @@ class _BackupPageState extends State<BackupPage> {
       _message = null;
     });
     try {
-      final snapshot = await widget.service.capture();
+      final export = await widget.service.prepareExport();
+      final snapshot = export.snapshot;
       final timestamp = snapshot.createdAt.millisecondsSinceEpoch;
       final saved = await FilePicker.saveFile(
         fileName: 'respaldo-rh-$timestamp.json',
@@ -35,6 +37,10 @@ class _BackupPageState extends State<BackupPage> {
         mimeType: 'application/json',
         dialogTitle: 'Guardar respaldo',
       );
+      savedFile = saved != null;
+      if (savedFile) {
+        await export.confirmSaved();
+      }
       if (!mounted) {
         return;
       }
@@ -48,6 +54,14 @@ class _BackupPageState extends State<BackupPage> {
         setState(() => _message = error.message);
       }
     } catch (_) {
+      if (savedFile) {
+        if (mounted) {
+          setState(
+            () => _message = 'El archivo se guardó, pero no se pudo registrar la exportación en el historial.',
+          );
+        }
+        return;
+      }
       if (mounted) {
         setState(
           () => _message = 'No se pudo guardar el respaldo. Verifica el espacio y vuelve a intentarlo.',

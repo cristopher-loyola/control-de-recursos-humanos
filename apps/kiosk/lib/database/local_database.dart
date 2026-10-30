@@ -22,7 +22,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 4,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await db.execute('''
@@ -33,10 +33,18 @@ class LocalDatabase {
             )
           ''');
           await _createAttendance(db);
+          await _createAdmin(db);
+          await _createAudit(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await _createAttendance(db);
+          }
+          if (oldVersion < 3) {
+            await _createAdmin(db);
+          }
+          if (oldVersion < 4) {
+            await _createAudit(db);
           }
         },
       ),
@@ -58,6 +66,41 @@ class LocalDatabase {
     await db.execute(
       'CREATE INDEX attendance_occurred_at ON attendance_events(occurred_at)',
     );
+  }
+
+  static Future<void> _createAdmin(Database db) async {
+    await db.execute('''
+      CREATE TABLE administrator (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        username TEXT NOT NULL,
+        salt BLOB NOT NULL,
+        password_hash BLOB NOT NULL,
+        algorithm TEXT NOT NULL,
+        iterations INTEGER NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  static Future<void> _createAudit(Database db) async {
+    await db.execute('''
+      CREATE TABLE audit_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        occurred_at INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        actor TEXT,
+        details TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit_entries
+      BEGIN SELECT RAISE(ABORT, 'Audit entries cannot be edited'); END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit_entries
+      BEGIN SELECT RAISE(ABORT, 'Audit entries cannot be deleted'); END
+    ''');
   }
 
   Future<void> close() async {

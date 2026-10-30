@@ -10,9 +10,11 @@ class AttendancePage extends StatefulWidget {
     super.key,
     required this.employees,
     required this.attendance,
+    this.onOpenAdmin,
   });
   final EmployeeStore employees;
   final AttendanceStore attendance;
+  final VoidCallback? onOpenAdmin;
 
   @override
   State<AttendancePage> createState() => _AttendancePageState();
@@ -165,6 +167,12 @@ class _AttendancePageState extends State<AttendancePage> {
       appBar: AppBar(
         title: const Text('Entradas y salidas'),
         actions: [
+          if (widget.onOpenAdmin != null)
+            TextButton.icon(
+              onPressed: busy ? null : widget.onOpenAdmin,
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              label: const Text('Administrar'),
+            ),
           IconButton(
             onPressed: busy ? null : _load,
             tooltip: 'Actualizar',

@@ -9,10 +9,14 @@ class EmployeesPage extends StatefulWidget {
     required this.store,
     this.onOpenAttendance,
     this.onOpenBackup,
+    this.onLogout,
+    this.onOpenAudit,
   });
   final EmployeeStore store;
   final VoidCallback? onOpenAttendance;
   final Future<void> Function()? onOpenBackup;
+  final VoidCallback? onLogout;
+  final VoidCallback? onOpenAudit;
 
   @override
   State<EmployeesPage> createState() => _EmployeesPageState();
@@ -105,6 +109,18 @@ class _EmployeesPageState extends State<EmployeesPage> {
     appBar: AppBar(
       title: const Text('Control de Recursos Humanos'),
       actions: [
+        if (widget.onOpenAudit != null)
+          IconButton(
+            onPressed: _saving || _loading ? null : widget.onOpenAudit,
+            tooltip: 'Historial de acciones',
+            icon: const Icon(Icons.history),
+          ),
+        if (widget.onLogout != null)
+          IconButton(
+            onPressed: _saving ? null : widget.onLogout,
+            tooltip: 'Cerrar sesión y abrir checador',
+            icon: const Icon(Icons.lock_outline),
+          ),
         if (widget.onOpenBackup != null)
           IconButton(
             tooltip: 'Respaldos',

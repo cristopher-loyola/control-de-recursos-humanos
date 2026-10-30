@@ -24,10 +24,10 @@ void main() {
       filePath: path.join(temp.path, 'test.db'),
       factory: databaseFactoryFfi,
     );
-    employees = EmployeeStore(database: database);
+    employees = EmployeeStore(database: database, authorize: () {});
     now = DateTime(2026, 10, 28, 8);
     attendance = AttendanceStore(database, clock: () => now);
-    backups = BackupService(database);
+    backups = BackupService(database, authorize: () {});
   });
 
   tearDown(() async {

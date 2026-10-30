@@ -1,66 +1,45 @@
 import 'package:flutter/material.dart';
 
-import 'attendance/attendance_page.dart';
 import 'attendance/attendance_store.dart';
-import 'backup/backup_page.dart';
+import 'audit/audit_store.dart';
+import 'auth/access_gate.dart';
+import 'auth/admin_auth.dart';
 import 'backup/backup_service.dart';
 import 'database/local_database.dart';
 import 'employees/employee_store.dart';
-import 'employees/employees_page.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final database = LocalDatabase();
-  runApp(
-    MyApp(
-      store: EmployeeStore(database: database),
-      attendanceStore: AttendanceStore(database),
-      backupService: BackupService(database),
-    ),
-  );
+  final auth = AdminAuth(database);
+  runApp(MyApp(auth: auth, database: database));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({
-    super.key,
-    required this.store,
-    this.attendanceStore,
-    this.backupService,
-  });
-  final EmployeeStore store;
-  final AttendanceStore? attendanceStore;
-  final BackupService? backupService;
+  const MyApp({super.key, required this.auth, required this.database});
+  final AdminAuth auth;
+  final LocalDatabase database;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Control de Recursos Humanos',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2948A8)),
-    ),
-    home: Builder(
-      builder: (context) => EmployeesPage(
-        store: store,
-        onOpenAttendance: attendanceStore == null
-            ? null
-            : () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => AttendancePage(
-                    employees: store,
-                    attendance: attendanceStore!,
-                  ),
-                ),
-              ),
-        onOpenBackup: backupService == null
-            ? null
-            : () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => BackupPage(service: backupService!),
-                  ),
-                );
-              },
+    theme: createAppTheme(),
+    home: AccessGate(
+      auth: auth,
+      employees: EmployeeStore(
+        database: database,
+        authorize: auth.requireAdmin,
+        actor: () => auth.administratorName,
       ),
+      attendance: AttendanceStore(database),
+      backups: BackupService(
+        database,
+        authorize: auth.requireAdmin,
+        actor: () => auth.administratorName,
+      ),
+      audit: AuditStore(database, authorize: auth.requireAdmin),
     ),
   );
 }

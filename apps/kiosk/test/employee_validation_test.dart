@@ -22,7 +22,7 @@ void main() {
   test(
     'El almacenamiento rechaza datos inválidos antes de abrir SQLite',
     () async {
-      final store = EmployeeStore();
+      final store = EmployeeStore(authorize: () {});
       await expectLater(store.add('TADEO', 'Ana'), throwsArgumentError);
       await expectLater(store.add('1', '123'), throwsArgumentError);
     },

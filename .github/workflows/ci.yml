@@ -1,0 +1,63 @@
+name: Verificaciones
+
+on:
+  push:
+    branches: [main, adrian, cristo]
+  pull_request:
+    branches: [main, adrian, cristo]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: NestJS y Angular
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      API_PORT: '3000'
+      WEB_ORIGIN: http://localhost:4200
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.15.0
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.2
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm peers check -r
+      - run: pnpm --dir apps/api exec prisma validate
+      - run: pnpm --dir apps/api exec prisma generate
+      - run: pnpm --dir apps/api run test
+      - run: pnpm --dir apps/api run build
+      - run: pnpm --dir apps/web run test --watch=false
+      - run: pnpm --dir apps/web run build
+
+  flutter:
+    name: Flutter
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/kiosk
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+      - run: sudo apt-get update
+        working-directory: .
+      - run: sudo apt-get install -y libsqlite3-0 libsqlite3-dev
+        working-directory: .
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test

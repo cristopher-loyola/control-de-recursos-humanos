@@ -9,7 +9,7 @@ type ConnectionState = 'idle' | 'checking' | 'available' | 'database-unavailable
 @Component({
   imports: [RouterOutlet],
   selector: 'app-root',
-  styleUrl: './app.scss',
+  styleUrls: ['./app.scss', './functional-minimalism.scss'],
   templateUrl: './app.html',
 })
 export class App implements OnInit {

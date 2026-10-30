@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/local_database.dart';
 import 'employee_validation.dart';
+import '../audit/audit_store.dart';
 
 class Employee {
   const Employee({required this.number, required this.name});
@@ -12,9 +13,15 @@ class Employee {
 class DuplicateEmployee implements Exception {}
 
 class EmployeeStore {
-  EmployeeStore({String databaseName = 'kiosk.db', LocalDatabase? database})
-    : _database = database ?? LocalDatabase(name: databaseName);
+  EmployeeStore({
+    String databaseName = 'kiosk.db',
+    LocalDatabase? database,
+    required this.authorize,
+    this.actor,
+  }) : _database = database ?? LocalDatabase(name: databaseName);
   final LocalDatabase _database;
+  final void Function() authorize;
+  final String Function()? actor;
 
   Future<List<Employee>> list() async {
     final rows = await (await _database.open()).query(
@@ -32,6 +39,7 @@ class EmployeeStore {
   }
 
   Future<void> add(String number, String name) async {
+    authorize();
     final normalizedNumber = number.trim();
     final normalizedName = name.trim();
     final validationError =
@@ -41,10 +49,20 @@ class EmployeeStore {
       throw ArgumentError(validationError);
     }
     try {
-      await (await _database.open()).insert('employees', {
-        'number': normalizedNumber,
-        'name': normalizedName,
-      }, conflictAlgorithm: ConflictAlgorithm.abort);
+      final db = await _database.open();
+      await db.transaction((txn) async {
+        authorize();
+        await writeAudit(
+          txn,
+          action: AuditAction.employeeCreated,
+          actor: actor?.call() ?? 'Administrador',
+          details: {'employeeNumber': normalizedNumber},
+        );
+        await txn.insert('employees', {
+          'number': normalizedNumber,
+          'name': normalizedName,
+        }, conflictAlgorithm: ConflictAlgorithm.abort);
+      });
     } on DatabaseException catch (error) {
       if (error.isUniqueConstraintError()) {
         throw DuplicateEmployee();

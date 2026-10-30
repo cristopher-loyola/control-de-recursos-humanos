@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kiosk/employees/employee_store.dart';
-import 'package:kiosk/main.dart';
+import 'package:kiosk/employees/employees_page.dart';
 
 class MemoryEmployeeStore extends EmployeeStore {
+  MemoryEmployeeStore() : super(authorize: () {});
   final employees = <Employee>[];
 
   @override
@@ -27,7 +28,7 @@ void main() {
     tester,
   ) async {
     final store = MemoryEmployeeStore();
-    await tester.pumpWidget(MyApp(store: store));
+    await tester.pumpWidget(MaterialApp(home: EmployeesPage(store: store)));
     await tester.pumpAndSettle();
     final save = find.text('Guardar empleado');
     await tester.tap(save);
