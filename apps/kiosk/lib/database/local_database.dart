@@ -22,7 +22,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 7,
+        version: 9,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await db.execute('''
@@ -37,6 +37,8 @@ class LocalDatabase {
           await _createAudit(db);
           await _createRhAccounts(db);
           await _createOrganization(db);
+          await _createAttendanceReviews(db);
+          await _createConsentRecords(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -53,6 +55,12 @@ class LocalDatabase {
           }
           if (oldVersion < 7) {
             await _createOrganization(db);
+          }
+          if (oldVersion < 8) {
+            await _createAttendanceReviews(db);
+          }
+          if (oldVersion < 9) {
+            await _createConsentRecords(db);
           }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
@@ -142,6 +150,39 @@ class LocalDatabase {
         id INTEGER PRIMARY KEY CHECK(id = 1),
         name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 2 AND 120)
       )
+    ''');
+  }
+
+  static Future<void> _createAttendanceReviews(Database db) async {
+    await db.execute('''
+      CREATE TABLE attendance_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER NOT NULL REFERENCES attendance_events(id),
+        decision TEXT NOT NULL CHECK(decision IN ('approved', 'rejected')),
+        reviewer TEXT NOT NULL CHECK(length(trim(reviewer)) BETWEEN 3 AND 100),
+        reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 10 AND 500),
+        reviewed_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX attendance_reviews_event_id ON attendance_reviews(event_id, id)',
+    );
+  }
+
+  static Future<void> _createConsentRecords(Database db) async {
+    await db.execute('''
+      CREATE TABLE consent_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_number TEXT NOT NULL REFERENCES employees(number),
+        kind TEXT NOT NULL CHECK(kind IN ('recorded', 'revoked')),
+        document_reference TEXT NOT NULL CHECK(length(trim(document_reference)) BETWEEN 5 AND 120),
+        actor TEXT NOT NULL CHECK(length(trim(actor)) BETWEEN 3 AND 100),
+        occurred_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX consent_records_employee_id
+      ON consent_records(employee_number, id)
     ''');
   }
 

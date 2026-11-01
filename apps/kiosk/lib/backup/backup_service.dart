@@ -26,6 +26,8 @@ class BackupService {
         createdAt: DateTime.now(),
         employees: await txn.query('employees', orderBy: 'id'),
         events: await txn.query('attendance_events', orderBy: 'id'),
+        reviews: await txn.query('attendance_reviews', orderBy: 'id'),
+        consentRecords: await txn.query('consent_records', orderBy: 'id'),
       );
     });
   }
@@ -54,6 +56,8 @@ class BackupService {
     await db.transaction((txn) async {
       authorize();
       final name = actor?.call() ?? 'Administrador';
+      await txn.delete('attendance_reviews');
+      await txn.delete('consent_records');
       await txn.delete('attendance_events');
       await txn.delete('employees');
       final batch = txn.batch();
@@ -62,6 +66,12 @@ class BackupService {
       }
       for (final row in snapshot.events) {
         batch.insert('attendance_events', row);
+      }
+      for (final row in snapshot.reviews) {
+        batch.insert('attendance_reviews', row);
+      }
+      for (final row in snapshot.consentRecords) {
+        batch.insert('consent_records', row);
       }
       await batch.commit(noResult: true);
       await writeAudit(

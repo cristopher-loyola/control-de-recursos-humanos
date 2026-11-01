@@ -121,7 +121,18 @@ void main() {
       );
       await tapFormButton(tester, 'Entrar');
       expect(find.text('Guardar empleado'), findsOneWidget);
-      await tester.tap(find.byTooltip('Cerrar sesión y abrir checador'));
+      await tester.tap(find.byTooltip('Abrir menú'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Cerrar sesión'),
+        200,
+        scrollable: find.descendant(
+          of: find.byType(Drawer),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cerrar sesión'));
       await tester.pumpAndSettle();
       expect(find.text('Guardar empleado'), findsNothing);
       expect(find.text('Administrar'), findsOneWidget);

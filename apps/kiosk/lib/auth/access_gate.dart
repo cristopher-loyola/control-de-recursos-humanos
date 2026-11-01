@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../attendance/attendance_page.dart';
 import '../attendance/attendance_store.dart';
+import '../attendance/attendance_review_page.dart';
+import '../attendance/attendance_review_store.dart';
+import '../vision/consent_page.dart';
+import '../vision/consent_store.dart';
 import '../backup/backup_page.dart';
 import '../backup/backup_service.dart';
 import '../employees/employee_store.dart';
 import '../employees/employees_page.dart';
+import '../vision/vision_diagnostic_page.dart';
 import 'admin_auth.dart';
 import 'admin_login_page.dart';
 import 'recovery_code_page.dart';
@@ -169,6 +174,46 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                   }
                   return EmployeesPage(
                     store: widget.employees,
+                    onOpenConsents: auth.isAdministrator
+                        ? () {
+                            auth.requireAdmin();
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ConsentPage(
+                                  store: ConsentStore(
+                                    widget.attendance.database,
+                                    authorize: auth.requireAdmin,
+                                    actor: () => auth.administratorName,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                        : null,
+                    onOpenAttendanceReview: () {
+                      auth.requireStaff();
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => AttendanceReviewPage(
+                            store: AttendanceReviewStore(
+                              widget.attendance.database,
+                              authorize: auth.requireStaff,
+                              actor: () => auth.accountName,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    onOpenVisionDiagnostic: auth.isAdministrator
+                        ? () {
+                            auth.requireAdmin();
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const VisionDiagnosticPage(),
+                              ),
+                            );
+                          }
+                        : null,
                     onRotateRecoveryCode: auth.isAdministrator
                         ? auth.rotateRecoveryCode
                         : null,

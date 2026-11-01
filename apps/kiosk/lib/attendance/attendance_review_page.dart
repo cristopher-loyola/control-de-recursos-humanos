@@ -1,0 +1,255 @@
+import 'package:flutter/material.dart';
+
+import 'attendance_review_store.dart';
+
+class AttendanceReviewPage extends StatefulWidget {
+  const AttendanceReviewPage({super.key, required this.store});
+
+  final AttendanceReviewStore store;
+
+  @override
+  State<AttendanceReviewPage> createState() => _AttendanceReviewPageState();
+}
+
+class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
+  DateTime _day = DateTime.now();
+  List<AttendanceReviewItem> _items = [];
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final items = await widget.store.forDay(_day);
+      if (mounted) {
+        setState(() => _items = items);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'No se pudo cargar la revisión de asistencia.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _selectDay() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _day,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+    setState(() => _day = selected);
+    await _load();
+  }
+
+  Future<void> _review(
+    AttendanceReviewItem item,
+    ReviewDecision decision,
+  ) async {
+    var reasonText = '';
+    final form = GlobalKey<FormState>();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${decision.label}: ${item.employeeName}'),
+        content: Form(
+          key: form,
+          child: TextFormField(
+            onChanged: (value) => reasonText = value,
+            autofocus: true,
+            maxLength: 500,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Motivo de la decisión',
+              hintText: 'Describe cómo verificaste esta checada',
+            ),
+            validator: (value) => (value?.trim().length ?? 0) < 10
+                ? 'Escribe al menos 10 caracteres.'
+                : null,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (form.currentState!.validate()) {
+                Navigator.of(dialogContext).pop(reasonText.trim());
+              }
+            },
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || !mounted) {
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.store.review(item.eventId, decision, reason);
+      if (mounted) {
+        await _load();
+      }
+    } on ReviewRuleError catch (error) {
+      if (mounted) {
+        await _load();
+        if (mounted) {
+          setState(() => _error = error.message);
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'No se pudo guardar la revisión.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  String _reviewedAtLabel(BuildContext context, DateTime date) {
+    final local = date.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final time = TimeOfDay.fromDateTime(local).format(context);
+    return 'Revisada el $day/$month/${local.year} a las $time';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = _items.where((item) => item.decision == null).length;
+    final approved = _items
+        .where((item) => item.decision == ReviewDecision.approved)
+        .length;
+    final rejected = _items
+        .where((item) => item.decision == ReviewDecision.rejected)
+        .length;
+    final dayLabel =
+        '${_day.day.toString().padLeft(2, '0')}/${_day.month.toString().padLeft(2, '0')}/${_day.year}';
+    return Scaffold(
+      appBar: AppBar(title: const Text('Revisión de asistencia')),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 850),
+            child: ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                Text(
+                  'Checadas manuales',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Estas checadas no verifican la identidad por sí solas. RH debe revisar cada una antes de usarla en pre-nómina.',
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: _loading || _saving ? null : _selectDay,
+                  icon: const Icon(Icons.calendar_today_outlined),
+                  label: Text(dayLabel),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Pendientes: $pending  ·  Aprobadas: $approved  ·  Rechazadas: $rejected',
+                ),
+                const SizedBox(height: 16),
+                if (_loading || _saving) const LinearProgressIndicator(),
+                if (_error != null) ...[
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _load,
+                    child: const Text('Volver a intentar'),
+                  ),
+                ],
+                if (!_loading && _items.isEmpty)
+                  const Text('No hay checadas manuales en este día.'),
+                for (final item in _items)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${item.kind == 'entry' ? 'Entrada' : 'Salida'} · ${item.employeeName}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'N.º ${item.employeeNumber} · ${TimeOfDay.fromDateTime(item.occurredAt.toLocal()).format(context)}',
+                          ),
+                          const SizedBox(height: 8),
+                          Text(item.decision?.label ?? 'Pendiente de revisión'),
+                          if (item.reason != null) ...[
+                            const SizedBox(height: 4),
+                            Text('Motivo: ${item.reason} · ${item.reviewer}'),
+                          ],
+                          if (item.reviewedAt != null) ...[
+                            const SizedBox(height: 4),
+                            Text(_reviewedAtLabel(context, item.reviewedAt!)),
+                          ],
+                          if (item.decision == null) ...[
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                FilledButton(
+                                  onPressed: _loading || _saving
+                                      ? null
+                                      : () => _review(
+                                          item,
+                                          ReviewDecision.approved,
+                                        ),
+                                  child: const Text('Aprobar'),
+                                ),
+                                OutlinedButton(
+                                  onPressed: _loading || _saving
+                                      ? null
+                                      : () => _review(
+                                          item,
+                                          ReviewDecision.rejected,
+                                        ),
+                                  child: const Text('Rechazar'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

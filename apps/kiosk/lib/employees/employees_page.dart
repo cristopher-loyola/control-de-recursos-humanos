@@ -11,6 +11,9 @@ class EmployeesPage extends StatefulWidget {
     this.onOpenBackup,
     this.onLogout,
     this.onOpenAudit,
+    this.onOpenVisionDiagnostic,
+    this.onOpenConsents,
+    this.onOpenAttendanceReview,
     this.onRotateRecoveryCode,
     this.onCreateRhAccount,
   });
@@ -19,6 +22,9 @@ class EmployeesPage extends StatefulWidget {
   final Future<void> Function()? onOpenBackup;
   final VoidCallback? onLogout;
   final VoidCallback? onOpenAudit;
+  final VoidCallback? onOpenVisionDiagnostic;
+  final VoidCallback? onOpenConsents;
+  final VoidCallback? onOpenAttendanceReview;
   final Future<void> Function()? onRotateRecoveryCode;
   final VoidCallback? onCreateRhAccount;
 
@@ -111,70 +117,196 @@ class _EmployeesPageState extends State<EmployeesPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    drawer: Drawer(
+      child: Builder(
+        builder: (drawerContext) => SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Secciones',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Ocultar menú',
+                      onPressed: () => Navigator.of(drawerContext).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text('Elige la tarea que quieres realizar.'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.people_outline),
+                title: const Text('Empleados'),
+                subtitle: const Text('Registrar y consultar personal.'),
+                selected: true,
+                onTap: () => Navigator.of(drawerContext).pop(),
+              ),
+              if (widget.onOpenAttendanceReview != null)
+                ListTile(
+                  leading: const Icon(Icons.fact_check_outlined),
+                  title: const Text('Revisar asistencia'),
+                  subtitle: const Text('Aprobar o rechazar checadas manuales.'),
+                  onTap: _saving || _loading
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onOpenAttendanceReview!();
+                        },
+                ),
+              if (widget.onOpenAttendance != null)
+                ListTile(
+                  leading: const Icon(Icons.access_time),
+                  title: const Text('Asistencia'),
+                  subtitle: const Text('Consultar entradas y salidas.'),
+                  onTap: _saving
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onOpenAttendance!();
+                        },
+                ),
+              if (widget.onOpenVisionDiagnostic != null)
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_outlined),
+                  title: const Text('Diagnóstico de cámara'),
+                  subtitle: const Text(
+                    'Comprobar la detección local de rostros.',
+                  ),
+                  onTap: _saving || _loading
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onOpenVisionDiagnostic!();
+                        },
+                ),
+              if (widget.onOpenConsents != null)
+                ListTile(
+                  leading: const Icon(Icons.assignment_turned_in_outlined),
+                  title: const Text('Consentimientos'),
+                  subtitle: const Text(
+                    'Registrar folios de documentos firmados.',
+                  ),
+                  onTap: _saving || _loading
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onOpenConsents!();
+                        },
+                ),
+              if (widget.onCreateRhAccount != null ||
+                  widget.onRotateRecoveryCode != null ||
+                  widget.onOpenAudit != null ||
+                  widget.onOpenBackup != null)
+                const Divider(height: 32),
+              if (widget.onCreateRhAccount != null)
+                ListTile(
+                  leading: const Icon(Icons.person_add_alt_1_outlined),
+                  title: const Text('Cuentas de RH'),
+                  subtitle: const Text('Crear el acceso del personal de RH.'),
+                  onTap: _saving || _loading
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onCreateRhAccount!();
+                        },
+                ),
+              if (widget.onRotateRecoveryCode != null)
+                ListTile(
+                  leading: const Icon(Icons.key_outlined),
+                  title: const Text('Código de recuperación'),
+                  subtitle: const Text(
+                    'Generar un código nuevo para recuperar el acceso.',
+                  ),
+                  onTap: _saving || _loading || _rotatingRecoveryCode
+                      ? null
+                      : () async {
+                          Navigator.of(drawerContext).pop();
+                          setState(() => _rotatingRecoveryCode = true);
+                          try {
+                            await widget.onRotateRecoveryCode!();
+                          } catch (_) {
+                            if (mounted) {
+                              setState(
+                                () => _message = 'No se pudo generar el código. Vuelve a intentarlo.',
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _rotatingRecoveryCode = false);
+                            }
+                          }
+                        },
+                ),
+              if (widget.onOpenAudit != null)
+                ListTile(
+                  leading: const Icon(Icons.history),
+                  title: const Text('Historial de acciones'),
+                  subtitle: const Text(
+                    'Consultar cambios y accesos registrados.',
+                  ),
+                  onTap: _saving || _loading
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onOpenAudit!();
+                        },
+                ),
+              if (widget.onOpenBackup != null)
+                ListTile(
+                  leading: const Icon(Icons.backup_outlined),
+                  title: const Text('Respaldos'),
+                  subtitle: const Text(
+                    'Guardar o restaurar los datos de la tablet.',
+                  ),
+                  onTap: _saving || _loading
+                      ? null
+                      : () async {
+                          Navigator.of(drawerContext).pop();
+                          await widget.onOpenBackup!();
+                          if (mounted) {
+                            await _load();
+                          }
+                        },
+                ),
+              if (widget.onLogout != null) ...[
+                const Divider(height: 32),
+                ListTile(
+                  leading: const Icon(Icons.lock_outline),
+                  title: const Text('Cerrar sesión'),
+                  subtitle: const Text('Volver al checador de asistencia.'),
+                  onTap: _saving
+                      ? null
+                      : () {
+                          Navigator.of(drawerContext).pop();
+                          widget.onLogout!();
+                        },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
     appBar: AppBar(
       title: const Text('Control de Recursos Humanos'),
-      actions: [
-        if (widget.onCreateRhAccount != null)
-          IconButton(
-            tooltip: 'Crear cuenta de RH',
-            icon: const Icon(Icons.person_add_alt_1_outlined),
-            onPressed: _saving || _loading ? null : widget.onCreateRhAccount,
-          ),
-        if (widget.onRotateRecoveryCode != null)
-          IconButton(
-            tooltip: 'Generar nuevo código de recuperación',
-            icon: const Icon(Icons.key_outlined),
-            onPressed: _saving || _loading || _rotatingRecoveryCode
-                ? null
-                : () async {
-                    setState(() => _rotatingRecoveryCode = true);
-                    try {
-                      await widget.onRotateRecoveryCode!();
-                    } catch (_) {
-                      if (mounted) {
-                        setState(
-                          () => _message = 'No se pudo generar el código. Vuelve a intentarlo.',
-                        );
-                      }
-                    } finally {
-                      if (mounted) {
-                        setState(() => _rotatingRecoveryCode = false);
-                      }
-                    }
-                  },
-          ),
-        if (widget.onOpenAudit != null)
-          IconButton(
-            onPressed: _saving || _loading ? null : widget.onOpenAudit,
-            tooltip: 'Historial de acciones',
-            icon: const Icon(Icons.history),
-          ),
-        if (widget.onLogout != null)
-          IconButton(
-            onPressed: _saving ? null : widget.onLogout,
-            tooltip: 'Cerrar sesión y abrir checador',
-            icon: const Icon(Icons.lock_outline),
-          ),
-        if (widget.onOpenBackup != null)
-          IconButton(
-            tooltip: 'Respaldos',
-            icon: const Icon(Icons.backup_outlined),
-            onPressed: _saving || _loading
-                ? null
-                : () async {
-                    await widget.onOpenBackup!();
-                    if (mounted) {
-                      await _load();
-                    }
-                  },
-          ),
-        if (widget.onOpenAttendance != null)
-          TextButton.icon(
-            onPressed: _saving ? null : widget.onOpenAttendance,
-            icon: const Icon(Icons.access_time),
-            label: const Text('Asistencia'),
-          ),
-      ],
+      leading: Builder(
+        builder: (scaffoldContext) => IconButton(
+          tooltip: 'Abrir menú',
+          onPressed: () => Scaffold.of(scaffoldContext).openDrawer(),
+          icon: const Icon(Icons.menu),
+        ),
+      ),
     ),
     body: SafeArea(
       child: Center(

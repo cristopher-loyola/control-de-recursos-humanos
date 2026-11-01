@@ -20,6 +20,9 @@ enum AuditAction {
   ),
   passwordRecovered('password_recovered', 'Contraseña recuperada'),
   employeeCreated('employee_created', 'Empleado registrado'),
+  consentRecorded('consent_recorded', 'Consentimiento documentado'),
+  consentRevoked('consent_revoked', 'Consentimiento revocado'),
+  attendanceReviewed('attendance_reviewed', 'Checada manual revisada'),
   backupExported('backup_exported', 'Respaldo exportado'),
   backupRestored('backup_restored', 'Respaldo restaurado');
 
@@ -74,6 +77,12 @@ class AuditEntry {
     switch (action) {
       case AuditAction.employeeCreated:
         return 'Número de empleado: ${details['employeeNumber']}';
+      case AuditAction.consentRecorded:
+        return 'Se registró el folio del consentimiento de ${details['employeeNumber']}.';
+      case AuditAction.consentRevoked:
+        return 'Se registró la revocación de ${details['employeeNumber']}.';
+      case AuditAction.attendanceReviewed:
+        return 'Checada ${details['eventId']}: ${details['decision'] == 'approved' ? 'aprobada' : 'rechazada'}.';
       case AuditAction.backupExported:
       case AuditAction.backupRestored:
         return '${details['employees']} empleados · ${details['attendance']} movimientos';

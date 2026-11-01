@@ -4,6 +4,7 @@ import 'package:kiosk/auth/admin_auth.dart';
 import 'package:kiosk/backup/backup_service.dart';
 import 'package:kiosk/database/local_database.dart';
 import 'package:kiosk/employees/employee_store.dart';
+import 'package:kiosk/vision/consent_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -28,6 +29,11 @@ void main() {
       );
       final backups = BackupService(database, authorize: auth.requireAdmin);
       final audit = AuditStore(database, authorize: auth.requireAdmin);
+      final consents = ConsentStore(
+        database,
+        authorize: auth.requireAdmin,
+        actor: () => auth.administratorName,
+      );
 
       await auth.initialize();
       await auth.create('admin', 'contraseña administrativa segura');
@@ -49,6 +55,11 @@ void main() {
       );
       await expectLater(backups.capture(), throwsA(isA<AdminAccessRequired>()));
       await expectLater(audit.list(), throwsA(isA<AdminAccessRequired>()));
+      await expectLater(consents.list(), throwsA(isA<AdminAccessRequired>()));
+      await expectLater(
+        consents.record('101', ConsentKind.recorded, 'CONS-2026-101'),
+        throwsA(isA<AdminAccessRequired>()),
+      );
       await expectLater(
         auth.createRhAccount('otro', 'otra contraseña segura'),
         throwsA(isA<AdminAccessRequired>()),
@@ -57,6 +68,8 @@ void main() {
       auth.logout();
       await auth.login('admin', 'contraseña administrativa segura');
       expect(auth.isAdministrator, isTrue);
+      await consents.record('101', ConsentKind.recorded, 'CONS-2026-101');
+      expect((await consents.list()).single.active, isTrue);
       final entries = await audit.list();
       expect(
         entries.any((entry) => entry.action == AuditAction.rhAccountCreated),

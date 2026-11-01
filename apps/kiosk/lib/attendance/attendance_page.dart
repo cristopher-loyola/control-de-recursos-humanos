@@ -112,7 +112,10 @@ class _AttendancePageState extends State<AttendancePage> {
       if (!mounted) {
         return;
       }
-      setState(() => _message = '${kind.label} guardada en esta tablet.');
+      setState(
+        () =>
+            _message = '${kind.label} guardada; pendiente de revisión por RH.',
+      );
       await _load();
     } on AttendanceRuleError catch (error) {
       if (mounted) {
@@ -187,7 +190,13 @@ class _AttendancePageState extends State<AttendancePage> {
             child: ListView(
               padding: const EdgeInsets.all(24),
               children: [
-                const Text('Selecciona al empleado y registra su movimiento.'),
+                const Text(
+                  'Selecciona al empleado y registra su movimiento manual.',
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'La identidad no se verifica aquí. Cada movimiento queda pendiente de revisión por RH.',
+                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Una entrada y una salida por empleado al día. Se utiliza la fecha y hora de esta tablet.',
@@ -274,30 +283,32 @@ class _AttendancePageState extends State<AttendancePage> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     child: Semantics(liveRegion: true, child: Text(_message!)),
                   ),
-                const Divider(height: 40),
-                Text(
-                  'Historial · ${_day.day}/${_day.month}/${_day.year}',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                if (!busy && _error == null && _events.isEmpty)
-                  const Text('Aún no hay movimientos hoy.'),
-                for (final event in _events)
-                  Card(
-                    child: ListTile(
-                      leading: Icon(
-                        event.kind == AttendanceKind.entry
-                            ? Icons.login
-                            : Icons.logout,
-                      ),
-                      title: Text(
-                        '${event.kind.label} · ${event.employeeName}',
-                      ),
-                      subtitle: Text(
-                        'Número: ${event.employeeNumber} · ${_date(event.occurredAt)} · ${_time(event.occurredAt)}',
+                if (widget.onOpenAdmin == null) ...[
+                  const Divider(height: 40),
+                  Text(
+                    'Historial · ${_day.day}/${_day.month}/${_day.year}',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  if (!busy && _error == null && _events.isEmpty)
+                    const Text('Aún no hay movimientos hoy.'),
+                  for (final event in _events)
+                    Card(
+                      child: ListTile(
+                        leading: Icon(
+                          event.kind == AttendanceKind.entry
+                              ? Icons.login
+                              : Icons.logout,
+                        ),
+                        title: Text(
+                          '${event.kind.label} · ${event.employeeName}',
+                        ),
+                        subtitle: Text(
+                          'Número: ${event.employeeNumber} · ${_date(event.occurredAt)} · ${_time(event.occurredAt)}',
+                        ),
                       ),
                     ),
-                  ),
+                ],
               ],
             ),
           ),
