@@ -15,10 +15,15 @@ class FaceCapturePanel extends StatefulWidget {
     required this.onSamples,
     this.beforeStart,
     this.guidedEnrollment = false,
+    this.active = true,
   });
   final Future<void> Function(List<List<double>>) onSamples;
   final Future<void> Function()? beforeStart;
   final bool guidedEnrollment;
+
+  /// En pausa la cámara sigue encendida pero no analiza cuadros; al reactivarse
+  /// empieza una lectura nueva sin esperar a que la cámara vuelva a abrir.
+  final bool active;
 
   @override
   State<FaceCapturePanel> createState() => _FaceCapturePanelState();
@@ -139,8 +144,19 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
     }
   }
 
+  @override
+  void didUpdateWidget(FaceCapturePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _epoch++;
+      _finished = false;
+      _reset();
+      _showStatus('Coloca tu rostro en el centro.');
+    }
+  }
+
   void _onFrame(CameraImage frame) {
-    if (_disposed || _finished || _frameWork != null) {
+    if (_disposed || _finished || !widget.active || _frameWork != null) {
       return;
     }
     final epoch = _epoch;
@@ -296,13 +312,12 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
           const SizedBox(height: 12),
         ],
         SizedBox(
-          height: widget.guidedEnrollment
-              ? (MediaQuery.sizeOf(context).height - 330).clamp(180.0, 360.0)
-              : null,
+          // La vista completa debe caber en pantalla, también con la tablet horizontal.
+          height: (MediaQuery.sizeOf(context).height - 330).clamp(180.0, 420.0),
           child: AspectRatio(
             aspectRatio: 4 / 3,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(8),
               child: ColoredBox(
                 color: Colors.black,
                 child: camera != null && camera.value.isInitialized
@@ -334,19 +349,21 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
             ),
           ),
         ),
-        TextButton.icon(
-          onPressed: _finished
-              ? null
-              : () async {
-                  _epoch++;
-                  _reset();
-                  _analysisHalfTurn = false;
-                  setState(() => _halfTurn = !_halfTurn);
-                  await _engine.setCameraRotation(_halfTurn);
-                },
-          icon: const Icon(Icons.rotate_right),
-          label: const Text('Girar imagen 180 grados'),
-        ),
+        // Ajuste de instalación: solo lo ve RH al registrar rostros, no el empleado al checar.
+        if (widget.guidedEnrollment)
+          TextButton.icon(
+            onPressed: _finished
+                ? null
+                : () async {
+                    _epoch++;
+                    _reset();
+                    _analysisHalfTurn = false;
+                    setState(() => _halfTurn = !_halfTurn);
+                    await _engine.setCameraRotation(_halfTurn);
+                  },
+            icon: const Icon(Icons.rotate_right),
+            label: const Text('Girar imagen 180 grados'),
+          ),
         if (_failed)
           TextButton(
             onPressed: () => _operations = _operations.then((_) => _start()),

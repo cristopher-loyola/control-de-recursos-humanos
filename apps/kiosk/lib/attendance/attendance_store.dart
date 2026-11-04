@@ -1,4 +1,5 @@
 import '../database/local_database.dart';
+import '../departments/schedule.dart';
 import '../vision/face_engine.dart';
 import '../vision/face_template_store.dart';
 import '../vision/face_matching.dart';
@@ -198,15 +199,48 @@ class AttendanceStore {
           'La hora de la tablet es anterior al último movimiento. Revisa el reloj.',
         );
       }
-      await txn.insert('attendance_events', {
+      final departments = await txn.rawQuery(
+        '''
+        SELECT d.name, d.entry_minutes, d.exit_minutes, d.tolerance_minutes
+        FROM employees e JOIN departments d ON d.id = e.department_id
+        WHERE e.number = ?
+        ''',
+        [number],
+      );
+      final department = departments.isEmpty ? null : departments.single;
+      final issue = scheduleIssue(
+        isEntry: kind == AttendanceKind.entry,
+        localTime: now.toLocal(),
+        schedule: department == null
+            ? null
+            : DepartmentSchedule(
+                departmentName: department['name'] as String,
+                entryMinutes: department['entry_minutes'] as int,
+                exitMinutes: department['exit_minutes'] as int,
+                toleranceMinutes: department['tolerance_minutes'] as int,
+              ),
+      );
+      final eventId = await txn.insert('attendance_events', {
         'employee_number': number,
         'kind': kind.value,
         'occurred_at': now.millisecondsSinceEpoch,
         'capture_method': match == null ? 'manual' : 'facial',
         'similarity': match?.score,
         'identity_model': match == null ? null : FaceEngine.modelId,
-        'liveness_method': match == null ? null : 'blink_challenge_v1',
+        // Sin prueba de vida hasta integrar un modelo antisuplantación.
+        'liveness_method': match == null ? null : 'none',
+        'schedule_note': issue,
       });
+      // Solo lo que sale del horario llega a RH; las manuales siempre se revisan.
+      if (match != null && issue == null) {
+        await txn.insert('attendance_reviews', {
+          'event_id': eventId,
+          'decision': 'approved',
+          'reviewer': 'sistema',
+          'reason': 'A tiempo según el horario de ${department!['name']}.',
+          'reviewed_at': now.millisecondsSinceEpoch,
+        });
+      }
     });
   }
 }

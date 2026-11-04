@@ -27,10 +27,14 @@ class AttendanceReviewItem {
     this.reason,
     this.reviewedAt,
     this.captureMethod = 'manual',
+    this.scheduleNote,
   });
 
   final int eventId;
   final String captureMethod;
+
+  /// Por qué llegó a revisión según el horario del departamento.
+  final String? scheduleNote;
   final String employeeNumber;
   final String employeeName;
   final String kind;
@@ -45,6 +49,7 @@ class AttendanceReviewItem {
     return AttendanceReviewItem(
       eventId: row['id'] as int,
       captureMethod: row['capture_method'] as String? ?? 'manual',
+      scheduleNote: row['schedule_note'] as String?,
       employeeNumber: row['employee_number'] as String,
       employeeName: row['employee_name'] as String,
       kind: row['kind'] as String,
@@ -91,7 +96,7 @@ class AttendanceReviewStore {
       final rows = await txn.rawQuery(
         '''
         SELECT a.id, a.employee_number, e.name AS employee_name,
-               a.kind, a.occurred_at, a.capture_method, r.decision, r.reviewer, r.reason,
+               a.kind, a.occurred_at, a.capture_method, a.schedule_note, r.decision, r.reviewer, r.reason,
                r.reviewed_at
         FROM attendance_events a
         JOIN employees e ON e.number = a.employee_number

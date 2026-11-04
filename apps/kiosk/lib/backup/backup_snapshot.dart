@@ -13,6 +13,7 @@ class BackupSnapshot {
     this.events,
     this.reviews,
     this.consentRecords,
+    this.departments,
   );
   static const maxBytes = 20 * 1024 * 1024;
   final DateTime createdAt;
@@ -20,6 +21,7 @@ class BackupSnapshot {
   final List<Map<String, Object?>> events;
   final List<Map<String, Object?>> reviews;
   final List<Map<String, Object?>> consentRecords;
+  final List<Map<String, Object?>> departments;
 
   factory BackupSnapshot.fromRows({
     required DateTime createdAt,
@@ -27,12 +29,14 @@ class BackupSnapshot {
     required List<Map<String, Object?>> events,
     List<Map<String, Object?>> reviews = const [],
     List<Map<String, Object?>> consentRecords = const [],
+    List<Map<String, Object?>> departments = const [],
   }) => BackupSnapshot.decode(
     utf8.encode(
       jsonEncode({
         'format': 'control-recursos-humanos',
-        'version': 4,
+        'version': 5,
         'createdAt': createdAt.toUtc().toIso8601String(),
+        'departments': departments,
         'employees': employees,
         'attendance': events,
         'attendanceReviews': reviews,
@@ -55,7 +59,7 @@ class BackupSnapshot {
     }
     if (raw is! Map<String, dynamic> ||
         raw['format'] != 'control-recursos-humanos' ||
-        ![1, 2, 3, 4].contains(raw['version'])) {
+        ![1, 2, 3, 4, 5].contains(raw['version'])) {
       throw const InvalidBackup(
         'Este archivo no corresponde a una versión de respaldo compatible.',
       );
@@ -67,15 +71,16 @@ class BackupSnapshot {
     final reviewRows = raw['version'] == 1
         ? <Object?>[]
         : raw['attendanceReviews'];
-    final consentRows = raw['version'] == 3 || raw['version'] == 4
-        ? raw['consentRecords']
-        : <Object?>[];
+    final version = raw['version'] as int;
+    final consentRows = version >= 3 ? raw['consentRecords'] : <Object?>[];
+    final departmentRows = version >= 5 ? raw['departments'] : <Object?>[];
     if (createdAt == null ||
         !createdAt.isUtc ||
         employeeRows is! List ||
         eventRows is! List ||
         reviewRows is! List ||
-        consentRows is! List) {
+        consentRows is! List ||
+        departmentRows is! List) {
       throw const InvalidBackup('El respaldo está incompleto.');
     }
     final employees = <Map<String, Object?>>[];
@@ -88,6 +93,49 @@ class BackupSnapshot {
     final reviewIds = <int>{};
     final reviewedEvents = <int>{};
     final consentIds = <int>{};
+    final departments = <Map<String, Object?>>[];
+    final departmentIds = <int>{};
+    final departmentNames = <String>{};
+    for (final row in departmentRows) {
+      if (row is! Map<String, dynamic>) {
+        throw const InvalidBackup(
+          'El respaldo contiene un departamento inválido.',
+        );
+      }
+      final id = row['id'];
+      final name = row['name'];
+      final entry = row['entry_minutes'];
+      final exit = row['exit_minutes'];
+      final tolerance = row['tolerance_minutes'];
+      if (!_validId(id) ||
+          !departmentIds.add(id as int) ||
+          !_validText(name, 80) ||
+          (name as String).trim().length < 2 ||
+          !departmentNames.add(name.trim().toLowerCase()) ||
+          entry is! int ||
+          entry < 0 ||
+          entry > 1439 ||
+          exit is! int ||
+          exit < 0 ||
+          exit > 1439 ||
+          entry == exit ||
+          tolerance is! int ||
+          tolerance < 0 ||
+          tolerance > 240) {
+        throw const InvalidBackup(
+          'El respaldo contiene departamentos inválidos o repetidos.',
+        );
+      }
+      departments.add(
+        Map<String, Object?>.unmodifiable({
+          'id': id,
+          'name': name,
+          'entry_minutes': entry,
+          'exit_minutes': exit,
+          'tolerance_minutes': tolerance,
+        }),
+      );
+    }
     for (final row in employeeRows) {
       if (row is! Map<String, dynamic>) {
         throw const InvalidBackup('El respaldo contiene un empleado inválido.');
@@ -95,6 +143,12 @@ class BackupSnapshot {
       final id = row['id'];
       final number = row['number'];
       final name = row['name'];
+      final departmentId = row['department_id'];
+      if (departmentId != null && !departmentIds.contains(departmentId)) {
+        throw const InvalidBackup(
+          'Hay empleados asociados a departamentos inexistentes.',
+        );
+      }
       if (!_validId(id) ||
           !_validText(number, 30) ||
           !_validText(name, 120) ||
@@ -109,6 +163,7 @@ class BackupSnapshot {
           'id': id,
           'number': number,
           'name': name,
+          'department_id': departmentId,
         }),
       );
     }
@@ -122,9 +177,15 @@ class BackupSnapshot {
       final number = row['employee_number'];
       final kind = row['kind'];
       final time = row['occurred_at'];
-      final method = raw['version'] == 4
+      final method = version >= 4
           ? row['capture_method'] ?? 'manual'
           : 'manual';
+      final note = version >= 5 ? row['schedule_note'] : null;
+      if (note != null && !_validText(note, 300)) {
+        throw const InvalidBackup(
+          'El respaldo contiene una nota de horario inválida.',
+        );
+      }
       final similarity = row['similarity'];
       final model = row['identity_model'];
       final liveness = row['liveness_method'];
@@ -135,7 +196,8 @@ class BackupSnapshot {
                   similarity < -1 ||
                   similarity > 1 ||
                   !_validText(model, 100) ||
-                  liveness != 'blink_challenge_v1')) {
+                  // Antes de YuNet había reto de parpadeo; desde entonces no hay prueba de vida.
+                  liveness != 'blink_challenge_v1' && liveness != 'none')) {
         throw const InvalidBackup(
           'El respaldo contiene información facial inválida.',
         );
@@ -162,6 +224,7 @@ class BackupSnapshot {
           'similarity': method == 'facial' ? similarity : null,
           'identity_model': method == 'facial' ? model : null,
           'liveness_method': method == 'facial' ? liveness : null,
+          'schedule_note': note,
         }),
       );
     }
@@ -244,6 +307,7 @@ class BackupSnapshot {
         }),
       );
     }
+    departments.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     employees.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     events.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     reviews.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
@@ -266,6 +330,7 @@ class BackupSnapshot {
       List.unmodifiable(events),
       List.unmodifiable(reviews),
       List.unmodifiable(consents),
+      List.unmodifiable(departments),
     );
   }
 
@@ -282,8 +347,9 @@ class BackupSnapshot {
       utf8.encode(
         jsonEncode({
           'format': 'control-recursos-humanos',
-          'version': 4,
+          'version': 5,
           'createdAt': createdAt.toUtc().toIso8601String(),
+          'departments': departments,
           'employees': employees,
           'attendance': events,
           'attendanceReviews': reviews,

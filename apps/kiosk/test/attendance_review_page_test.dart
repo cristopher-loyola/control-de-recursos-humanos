@@ -61,6 +61,13 @@ void main() {
     await tester.tap(find.text('Confirmar'));
     await tester.pumpAndSettle();
 
+    // Ya resuelta: sale de la lista de pendientes y se consulta aparte.
+    expect(
+      find.text('No hay checadas por revisar en este día.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.textContaining('Ver también las ya resueltas'));
+    await tester.pumpAndSettle();
     expect(find.text('Aprobada'), findsOneWidget);
     expect(find.textContaining('Revisada el'), findsOneWidget);
     expect(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../admin/admin_shell.dart';
+
 import 'dart:async';
 
 import '../employees/employee_store.dart';
@@ -218,22 +220,24 @@ class _AttendancePageState extends State<AttendancePage> {
         !busy && _error == null && _selected != null && !alreadyRecorded;
     final hasEntry = _last?.kind == AttendanceKind.entry;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Entradas y salidas'),
-        actions: [
-          if (widget.onOpenAdmin != null)
-            TextButton.icon(
-              onPressed: busy ? null : widget.onOpenAdmin,
-              icon: const Icon(Icons.admin_panel_settings_outlined),
-              label: const Text('Administrar'),
+      appBar: EmbeddedInShell.of(context)
+          ? null
+          : AppBar(
+              title: const Text('Entradas y salidas'),
+              actions: [
+                if (widget.onOpenAdmin != null)
+                  TextButton.icon(
+                    onPressed: busy ? null : widget.onOpenAdmin,
+                    icon: const Icon(Icons.admin_panel_settings_outlined),
+                    label: const Text('Administrar'),
+                  ),
+                IconButton(
+                  onPressed: busy ? null : _load,
+                  tooltip: 'Actualizar',
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
             ),
-          IconButton(
-            onPressed: busy ? null : _load,
-            tooltip: 'Actualizar',
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

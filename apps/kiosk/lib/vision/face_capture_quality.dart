@@ -49,7 +49,8 @@ class FaceCaptureQuality {
     }
     final width = faceBounds.width / imageSize.width;
     final height = faceBounds.height / imageSize.height;
-    if (width < 0.22 || height < 0.22) {
+    // SFace alinea y recorta a 112x112; con ~100 px de rostro alcanza.
+    if (width < 0.15 || height < 0.15) {
       return 'Acércate un poco a la cámara.';
     }
     if (faceBounds.left < 0 ||
@@ -59,8 +60,8 @@ class FaceCaptureQuality {
       return 'Muestra el rostro completo dentro del cuadro.';
     }
     final center = faceBounds.center;
-    if ((center.dx / imageSize.width - 0.5).abs() > 0.23 ||
-        (center.dy / imageSize.height - 0.5).abs() > 0.23) {
+    if ((center.dx / imageSize.width - 0.5).abs() > 0.3 ||
+        (center.dy / imageSize.height - 0.5).abs() > 0.3) {
       return 'Centra tu rostro en la cámara.';
     }
     if ((headRoll?.abs() ?? 0) > 20) {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../admin/admin_shell.dart';
+
 import 'attendance_review_store.dart';
 
 class AttendanceReviewPage extends StatefulWidget {
@@ -14,6 +16,7 @@ class AttendanceReviewPage extends StatefulWidget {
 class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
   DateTime _day = DateTime.now();
   List<AttendanceReviewItem> _items = [];
+  bool _showAll = false;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -148,7 +151,9 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
     final dayLabel =
         '${_day.day.toString().padLeft(2, '0')}/${_day.month.toString().padLeft(2, '0')}/${_day.year}';
     return Scaffold(
-      appBar: AppBar(title: const Text('Revisión de asistencia')),
+      appBar: EmbeddedInShell.of(context)
+          ? null
+          : AppBar(title: const Text('Revisión de asistencia')),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -162,7 +167,7 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'RH revisa las checadas antes de usarlas en pre-nómina. Las faciales usan reconocimiento sin prueba de vida todavía; pueden suplantarse con una foto.',
+                  'Llegan aquí los retardos, las salidas anticipadas, las checadas de empleados sin departamento y las manuales. Las que fueron a tiempo se aprueban solas.',
                 ),
                 const SizedBox(height: 20),
                 OutlinedButton.icon(
@@ -189,8 +194,25 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
                   ),
                 ],
                 if (!_loading && _items.isEmpty)
-                  const Text('No hay checadas en este día.'),
-                for (final item in _items)
+                  const Text('No hay checadas en este día.')
+                else if (!_loading && pending == 0 && !_showAll)
+                  const Text('No hay checadas por revisar en este día.'),
+                if (_items.length > pending)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => setState(() => _showAll = !_showAll),
+                      child: Text(
+                        _showAll
+                            ? 'Mostrar solo las pendientes'
+                            : 'Ver también las ya resueltas (${_items.length - pending})',
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                for (final item in _items.where(
+                  (item) => _showAll || item.decision == null,
+                ))
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -205,6 +227,16 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
                           Text(
                             'N.º ${item.employeeNumber} · ${TimeOfDay.fromDateTime(item.occurredAt.toLocal()).format(context)}',
                           ),
+                          if (item.scheduleNote != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              item.scheduleNote!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 8),
                           Text(item.decision?.label ?? 'Pendiente de revisión'),
                           Text(

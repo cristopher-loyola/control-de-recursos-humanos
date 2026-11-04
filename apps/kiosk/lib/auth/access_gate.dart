@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../admin/admin_shell.dart';
+import '../admin/attendance_section.dart';
+import '../admin/home_section.dart';
+import '../admin/settings_section.dart';
+import '../departments/department_store.dart';
+import '../departments/departments_page.dart';
+
 import '../attendance/attendance_page.dart';
 import '../attendance/attendance_store.dart';
 import '../attendance/attendance_review_page.dart';
@@ -182,113 +189,167 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                       ),
                     );
                   }
-                  return EmployeesPage(
-                    store: widget.employees,
-                    onEnrollFace: (employee) async {
-                      auth.requireStaff();
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<bool>(
-                          builder: (_) => FaceEnrollmentPage(
-                            employee: employee,
-                            faces: faces,
-                            consents: ConsentStore(
-                              widget.attendance.database,
-                              authorize: auth.requireStaff,
-                              actor: () => auth.accountName,
-                            ),
+                  final reviews = AttendanceReviewStore(
+                    widget.attendance.database,
+                    authorize: auth.requireStaff,
+                    actor: () => auth.accountName,
+                  );
+                  final departments = DepartmentStore(
+                    widget.attendance.database,
+                    authorize: auth.requireStaff,
+                    actor: () => auth.accountName,
+                  );
+                  Future<void> open(Widget page) =>
+                      Navigator.of(context)
+                          .push(MaterialPageRoute<void>(builder: (_) => page));
+                  return AdminShell(
+                    organizationName: auth.organizationName,
+                    accountName: auth.signedInName,
+                    roleLabel: auth.isAdministrator
+                        ? 'Administrador'
+                        : 'Recursos Humanos',
+                    onExit: auth.logout,
+                    sections: [
+                      AdminSection(
+                        label: 'Inicio',
+                        icon: Icons.home_outlined,
+                        builder: (_) => HomeSection(
+                          employees: widget.employees,
+                          attendance: widget.attendance,
+                          pendingReviews: () async {
+                            final today = await reviews.forDay(DateTime.now());
+                            return today
+                                .where((item) => item.decision == null)
+                                .length;
+                          },
+                        ),
+                      ),
+                      AdminSection(
+                        label: 'Empleados',
+                        icon: Icons.people_outline,
+                        builder: (_) => EmployeesPage(
+                          store: widget.employees,
+                          departments: departments,
+                          onEnrollFace: (employee) async {
+                            auth.requireStaff();
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<bool>(
+                                builder: (_) => FaceEnrollmentPage(
+                                  employee: employee,
+                                  faces: faces,
+                                  consents: ConsentStore(
+                                    widget.attendance.database,
+                                    authorize: auth.requireStaff,
+                                    actor: () => auth.accountName,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      AdminSection(
+                        label: 'Departamentos',
+                        icon: Icons.account_tree_outlined,
+                        builder: (_) => DepartmentsPage(store: departments),
+                      ),
+                      AdminSection(
+                        label: 'Asistencia',
+                        icon: Icons.schedule_outlined,
+                        builder: (_) => AttendanceSection(
+                          review: (_) => AttendanceReviewPage(store: reviews),
+                          manual: (_) => AttendancePage(
+                            employees: widget.employees,
+                            attendance: widget.attendance,
                           ),
                         ),
-                      );
-                    },
-                    onOpenConsents: auth.isAdministrator
-                        ? () {
-                            auth.requireAdmin();
-                            final consentStore = ConsentStore(
-                              widget.attendance.database,
-                              authorize: auth.requireAdmin,
-                              actor: () => auth.administratorName,
-                            );
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ConsentPage(
-                                  store: consentStore,
-                                  onOpenFaceCheck: (employeeNumber) {
+                      ),
+                      if (auth.isAdministrator)
+                        AdminSection(
+                          label: 'Configuración',
+                          icon: Icons.settings_outlined,
+                          builder: (_) => SettingsSection(
+                            groups: [
+                              SettingsGroup('Accesos', [
+                                SettingsEntry(
+                                  title: 'Cuentas de RH',
+                                  description:
+                                      'Crear el acceso del personal de RH.',
+                                  icon: Icons.person_add_alt_outlined,
+                                  onOpen: () => open(RhAccountPage(auth: auth)),
+                                ),
+                                SettingsEntry(
+                                  title: 'Código de recuperación',
+                                  description: 'Generar un código nuevo para recuperar el acceso sin internet.',
+                                  icon: Icons.key_outlined,
+                                  onOpen: auth.rotateRecoveryCode,
+                                ),
+                              ]),
+                              SettingsGroup('Datos', [
+                                SettingsEntry(
+                                  title: 'Respaldos',
+                                  description: 'Guardar o restaurar los datos de la tablet.',
+                                  icon: Icons.save_outlined,
+                                  onOpen: () async {
                                     auth.requireAdmin();
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => VisionDiagnosticPage(
-                                          employeeNumber: employeeNumber,
-                                          consentStore: consentStore,
-                                        ),
+                                    await open(
+                                      BackupPage(service: widget.backups),
+                                    );
+                                  },
+                                ),
+                                SettingsEntry(
+                                  title: 'Consentimientos',
+                                  description: 'Folios de los documentos firmados para el uso del rostro.',
+                                  icon: Icons.assignment_outlined,
+                                  onOpen: () async {
+                                    auth.requireAdmin();
+                                    final consentStore = ConsentStore(
+                                      widget.attendance.database,
+                                      authorize: auth.requireAdmin,
+                                      actor: () => auth.administratorName,
+                                    );
+                                    await open(
+                                      ConsentPage(
+                                        store: consentStore,
+                                        onOpenFaceCheck: (employeeNumber) {
+                                          auth.requireAdmin();
+                                          open(
+                                            VisionDiagnosticPage(
+                                              employeeNumber: employeeNumber,
+                                              consentStore: consentStore,
+                                            ),
+                                          );
+                                        },
                                       ),
                                     );
                                   },
                                 ),
-                              ),
-                            );
-                          }
-                        : null,
-                    onOpenAttendanceReview: () {
-                      auth.requireStaff();
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => AttendanceReviewPage(
-                            store: AttendanceReviewStore(
-                              widget.attendance.database,
-                              authorize: auth.requireStaff,
-                              actor: () => auth.accountName,
-                            ),
+                              ]),
+                              if (widget.audit != null)
+                                SettingsGroup('Registro', [
+                                  SettingsEntry(
+                                    title: 'Historial de acciones',
+                                    description: 'Cambios y accesos registrados en la tablet.',
+                                    icon: Icons.history,
+                                    onOpen: () =>
+                                        open(AuditPage(store: widget.audit!)),
+                                  ),
+                                ]),
+                              SettingsGroup('Avanzado', [
+                                SettingsEntry(
+                                  title: 'Diagnóstico de cámara',
+                                  description: 'Comprobar que la cámara detecta rostros.',
+                                  icon: Icons.videocam_outlined,
+                                  onOpen: () async {
+                                    auth.requireAdmin();
+                                    await open(const VisionDiagnosticPage());
+                                  },
+                                ),
+                              ]),
+                            ],
                           ),
                         ),
-                      );
-                    },
-                    onOpenVisionDiagnostic: auth.isAdministrator
-                        ? () {
-                            auth.requireAdmin();
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const VisionDiagnosticPage(),
-                              ),
-                            );
-                          }
-                        : null,
-                    onRotateRecoveryCode: auth.isAdministrator
-                        ? auth.rotateRecoveryCode
-                        : null,
-                    onCreateRhAccount: auth.isAdministrator
-                        ? () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => RhAccountPage(auth: auth),
-                            ),
-                          )
-                        : null,
-                    onOpenAudit: !auth.isAdministrator || widget.audit == null
-                        ? null
-                        : () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => AuditPage(store: widget.audit!),
-                            ),
-                          ),
-                    onLogout: auth.logout,
-                    onOpenAttendance: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => AttendancePage(
-                          employees: widget.employees,
-                          attendance: widget.attendance,
-                        ),
-                      ),
-                    ),
-                    onOpenBackup: auth.isAdministrator
-                        ? () async {
-                            auth.requireAdmin();
-                            await Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    BackupPage(service: widget.backups),
-                              ),
-                            );
-                          }
-                        : null,
+                    ],
                   );
                 },
               ),

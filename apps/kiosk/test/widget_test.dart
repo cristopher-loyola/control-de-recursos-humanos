@@ -11,74 +11,62 @@ class MemoryEmployeeStore extends EmployeeStore {
   Future<List<Employee>> list() async => List.of(employees);
 
   @override
-  Future<void> add(String number, String name) async {
-    if (employees.any(
-      (employee) => employee.number == number.trim().toUpperCase(),
-    )) {
-      throw DuplicateEmployee();
-    }
-    employees.add(
-      Employee(number: number.trim().toUpperCase(), name: name.trim()),
-    );
+  Future<String> register(String name, {int? departmentId}) async {
+    final number = (employees.length + 1).toString();
+    employees.add(Employee(number: number, name: name.trim()));
+    return number;
   }
 }
 
 void main() {
-  testWidgets('Después del alta abre el registro facial con el mismo ID', (
-    tester,
-  ) async {
-    final store = MemoryEmployeeStore();
-    Employee? captured;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: EmployeesPage(
-          store: store,
-          onEnrollFace: (employee) async {
-            captured = employee;
-          },
+  testWidgets(
+    'El alta asigna el número consecutivo y abre el registro facial',
+    (tester) async {
+      final store = MemoryEmployeeStore()
+        ..employees.add(const Employee(number: '1', name: 'Ana Pérez'));
+      Employee? captured;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmployeesPage(
+            store: store,
+            onEnrollFace: (employee) async {
+              captured = employee;
+            },
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).at(0), '007');
-    await tester.enterText(find.byType(TextFormField).at(1), 'María López');
-    final save = find.text('Guardar empleado');
-    await tester.ensureVisible(save);
-    await tester.tap(save);
-    await tester.pumpAndSettle();
-    expect(captured?.number, '007');
-    expect(captured?.name, 'María López');
-    expect(store.employees.single.number, '007');
-    expect(find.textContaining('Rostro pendiente'), findsOneWidget);
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('2'),
+        findsOneWidget,
+        reason: 'Muestra el próximo número.',
+      );
+      await tester.enterText(find.byType(TextFormField), 'María López');
+      final save = find.text('Guardar empleado');
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(captured?.number, '2');
+      expect(captured?.name, 'María López');
+      expect(
+        find.text('María López quedó registrado con el No. 2.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Rostro pendiente'), findsNWidgets(2));
+    },
+  );
 
-  testWidgets('Valida campos, muestra el empleado y rechaza duplicados', (
-    tester,
-  ) async {
+  testWidgets('Exige un nombre válido antes de guardar', (tester) async {
     final store = MemoryEmployeeStore();
     await tester.pumpWidget(MaterialApp(home: EmployeesPage(store: store)));
     await tester.pumpAndSettle();
     final save = find.text('Guardar empleado');
     await tester.tap(save);
     await tester.pumpAndSettle();
-    expect(find.text('Escribe el número de empleado.'), findsOneWidget);
+    expect(find.text('Escribe el nombre.'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField), 'Ana 123');
+    await tester.tap(save);
+    await tester.pumpAndSettle();
     expect(store.employees, isEmpty);
-
-    final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), '001');
-    await tester.enterText(fields.at(1), 'Ana Pérez');
-    await tester.ensureVisible(save);
-    await tester.tap(save);
-    await tester.pumpAndSettle();
-    expect(find.text('Ana Pérez'), findsOneWidget);
-    expect(store.employees, hasLength(1));
-
-    await tester.enterText(fields.at(0), '001');
-    await tester.enterText(fields.at(1), 'Otra persona');
-    await tester.ensureVisible(save);
-    await tester.tap(save);
-    await tester.pumpAndSettle();
-    expect(find.text('Ya existe un empleado con ese número.'), findsOneWidget);
-    expect(store.employees, hasLength(1));
   });
 }

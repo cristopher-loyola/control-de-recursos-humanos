@@ -7,6 +7,7 @@ import 'package:kiosk/attendance/attendance_store.dart';
 import 'package:kiosk/backup/backup_service.dart';
 import 'package:kiosk/backup/backup_snapshot.dart';
 import 'package:kiosk/database/local_database.dart';
+import 'package:kiosk/departments/department_store.dart';
 import 'package:kiosk/employees/employee_store.dart';
 import 'package:kiosk/vision/consent_store.dart';
 import 'package:kiosk/vision/face_engine.dart';
@@ -95,11 +96,28 @@ void main() {
       await attendance.record('001', AttendanceKind.entry);
       final db = await database.open();
       await db.execute('DROP TABLE face_templates');
+      // Esquema v9: empleados sin departamento y sin tabla de departamentos.
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute('''
+        CREATE TABLE employees_v9 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          number TEXT NOT NULL UNIQUE CHECK(length(trim(number)) BETWEEN 1 AND 30),
+          name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120)
+        )
+      ''');
+      await db.execute(
+        'INSERT INTO employees_v9 (id, number, name) SELECT id, number, name FROM employees',
+      );
+      await db.execute('DROP TABLE employees');
+      await db.execute('ALTER TABLE employees_v9 RENAME TO employees');
+      await db.execute('DROP TABLE departments');
+      await db.execute('PRAGMA foreign_keys = ON');
       for (final column in [
         'capture_method',
         'similarity',
         'identity_model',
         'liveness_method',
+        'schedule_note',
       ]) {
         await db.execute('ALTER TABLE attendance_events DROP COLUMN $column');
       }
@@ -195,7 +213,7 @@ void main() {
       expect(rows, hasLength(2));
       expect(rows.first['capture_method'], 'facial');
       expect(rows.first['identity_model'], FaceEngine.modelId);
-      expect(rows.first['liveness_method'], 'blink_challenge_v1');
+      expect(rows.first['liveness_method'], 'none');
     },
   );
 
@@ -307,4 +325,102 @@ void main() {
       );
     },
   );
+
+  test('Una toma borrosa no tumba la identificación, pero sí cuenta', () {
+    List<double> axis(int i) => List.generate(128, (j) => j == i ? 1.0 : 0.0);
+    List<double> blend(double same) => FaceMatching.normalize(
+      List.generate(
+        128,
+        (j) => j == 0
+            ? same
+            : j == 1
+            ? 1 - same
+            : 0.0,
+      ),
+    );
+    final enrolled = [axis(0)];
+    final good = blend(0.9);
+    final blurry = axis(1);
+    final score = FaceMatching.score([good, good, blurry], enrolled);
+    expect(score, greaterThan(FaceMatching.threshold));
+    expect(score, lessThan(FaceMatching.cosine(good, axis(0))));
+    expect(
+      FaceMatching.score([blurry, blurry, good], enrolled),
+      lessThan(FaceMatching.threshold),
+    );
+  });
+
+  test('A tiempo se aprueba sola; retardo, sin departamento y manual van a revisión', () async {
+    final departments = DepartmentStore(
+      database,
+      authorize: authorize,
+      actor: () => 'test-admin',
+    );
+    await departments.save(
+      name: 'Producción',
+      entryMinutes: 8 * 60,
+      exitMinutes: 17 * 60,
+      toleranceMinutes: 10,
+    );
+    final production = (await departments.list()).single;
+    await employees.setDepartment('001', production.id);
+    await enroll('001', 0);
+    await enroll('002', 1);
+    final db = await database.open();
+    Future<Map<String, Object?>> last() async => (await db.rawQuery('''
+      SELECT a.schedule_note, r.decision, r.reviewer FROM attendance_events a
+      LEFT JOIN attendance_reviews r ON r.event_id = a.id ORDER BY a.id DESC LIMIT 1
+    ''')).single;
+
+    now = DateTime(2026, 10, 31, 8, 9);
+    await attendance.recordFacial(
+      await faces.identify(samples(0)),
+      AttendanceKind.entry,
+    );
+    expect(await last(), {
+      'schedule_note': null,
+      'decision': 'approved',
+      'reviewer': 'sistema',
+    });
+
+    now = DateTime(2026, 10, 31, 16, 30);
+    await attendance.recordFacial(
+      await faces.identify(samples(0)),
+      AttendanceKind.exit,
+    );
+    expect((await last())['decision'], isNull);
+    expect(
+      (await last())['schedule_note'],
+      contains('Salida anticipada por 30 min'),
+    );
+
+    await attendance.recordFacial(
+      await faces.identify(samples(1)),
+      AttendanceKind.entry,
+    );
+    expect((await last())['decision'], isNull);
+    expect((await last())['schedule_note'], contains('Sin departamento'));
+
+    now = DateTime(2026, 11, 1, 8);
+    await attendance.record('001', AttendanceKind.entry);
+    expect(
+      (await last())['decision'],
+      isNull,
+      reason: 'Las manuales siempre las revisa RH.',
+    );
+
+    expect(
+      (await employees.list())
+          .firstWhere((e) => e.number == '001')
+          .departmentName,
+      'Producción',
+    );
+  });
+
+  test('El número de empleado es consecutivo y lo asigna el sistema', () async {
+    expect(await employees.register('Carla Ruiz'), '3');
+    expect(await employees.register('Diego Mora'), '4');
+    final numbers = (await employees.list()).map((e) => e.number).toSet();
+    expect(numbers, containsAll(['001', '002', '3', '4']));
+  });
 }

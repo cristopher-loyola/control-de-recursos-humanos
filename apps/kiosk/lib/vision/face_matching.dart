@@ -7,7 +7,8 @@ class FaceRuleError implements Exception {
 
 class FaceMatching {
   // Conservative pilot thresholds. Must be evaluated on the target tablet/population.
-  static const threshold = 0.50;
+  // Sobre el promedio de las tomas. OpenCV recomienda 0.363 para SFace; se deja margen.
+  static const threshold = 0.45;
   static const margin = 0.08;
   static const dimensions = 128;
   static const sampleCount = 3;
@@ -48,11 +49,14 @@ class FaceMatching {
     return normalized;
   }
 
+  /// Promedio de la mejor coincidencia de cada toma: una toma borrosa no
+  /// tumba la identificación, pero todas cuentan.
   static double score(List<List<double>> query, List<List<double>> enrolled) =>
       query
           .map(
             (sample) =>
                 enrolled.map((other) => cosine(sample, other)).reduce(max),
           )
-          .reduce(min);
+          .reduce((a, b) => a + b) /
+      query.length;
 }

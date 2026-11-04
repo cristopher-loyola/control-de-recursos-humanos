@@ -73,6 +73,11 @@ class AdminAuth extends ChangeNotifier {
 
   bool get configured => _configured;
   bool get organizationConfigured => _organizationConfigured;
+  String? _organizationName;
+  String? get organizationName => _organizationName;
+
+  /// Nombre de la cuenta con sesión abierta, sin exigir permisos (para mostrarlo).
+  String? get signedInName => _authenticated ? _accountName : null;
   bool get isAuthenticated => _authenticated;
   bool get isAdministrator =>
       _authenticated && _role == LocalRole.administrator;
@@ -105,10 +110,13 @@ class AdminAuth extends ChangeNotifier {
     _configured = rows.isNotEmpty;
     final organizations = await (await database.open()).query(
       'organization',
-      columns: ['id'],
+      columns: ['id', 'name'],
       limit: 1,
     );
     _organizationConfigured = organizations.isNotEmpty;
+    _organizationName = organizations.isEmpty
+        ? null
+        : organizations.single['name'] as String?;
   }
 
   Future<void> create(String username, String password) async {
@@ -361,6 +369,7 @@ class AdminAuth extends ChangeNotifier {
         );
       });
       _organizationConfigured = true;
+      _organizationName = normalized;
       if (!_disposed) notifyListeners();
     } finally {
       _busy = false;
