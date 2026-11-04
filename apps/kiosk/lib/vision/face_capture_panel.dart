@@ -317,7 +317,7 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
           child: AspectRatio(
             aspectRatio: 4 / 3,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(8),
               child: ColoredBox(
                 color: Colors.black,
                 child: camera != null && camera.value.isInitialized
@@ -349,19 +349,21 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
             ),
           ),
         ),
-        TextButton.icon(
-          onPressed: _finished
-              ? null
-              : () async {
-                  _epoch++;
-                  _reset();
-                  _analysisHalfTurn = false;
-                  setState(() => _halfTurn = !_halfTurn);
-                  await _engine.setCameraRotation(_halfTurn);
-                },
-          icon: const Icon(Icons.rotate_right),
-          label: const Text('Girar imagen 180 grados'),
-        ),
+        // Ajuste de instalación: solo lo ve RH al registrar rostros, no el empleado al checar.
+        if (widget.guidedEnrollment)
+          TextButton.icon(
+            onPressed: _finished
+                ? null
+                : () async {
+                    _epoch++;
+                    _reset();
+                    _analysisHalfTurn = false;
+                    setState(() => _halfTurn = !_halfTurn);
+                    await _engine.setCameraRotation(_halfTurn);
+                  },
+            icon: const Icon(Icons.rotate_right),
+            label: const Text('Girar imagen 180 grados'),
+          ),
         if (_failed)
           TextButton(
             onPressed: () => _operations = _operations.then((_) => _start()),

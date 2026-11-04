@@ -62,6 +62,9 @@ class MemoryAuth extends AdminAuth {
       throw AdminAccessRequired();
     }
   }
+
+  @override
+  void requireStaff() => requireAdmin();
 }
 
 class MemoryEmployees extends EmployeeStore {
@@ -125,21 +128,14 @@ void main() {
         'Una frase segura',
       );
       await tapFormButton(tester, 'Entrar');
+      expect(find.text('Volver al checador'), findsOneWidget);
+      expect(find.text('Checadas por revisar'), findsOneWidget);
+      await tester.tap(find.byTooltip('Empleados'));
+      await tester.pumpAndSettle();
       expect(find.text('Guardar empleado'), findsOneWidget);
-      await tester.tap(find.byTooltip('Abrir menú'));
+      await tester.tap(find.text('Volver al checador'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text('Cerrar sesión'),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(Drawer),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Cerrar sesión'));
-      await tester.pumpAndSettle();
-      expect(find.text('Guardar empleado'), findsNothing);
+      expect(find.text('Volver al checador'), findsNothing);
       expect(find.text('Administrar'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       auth.dispose();
@@ -166,7 +162,7 @@ void main() {
     await tester.enterText(find.byType(TextFormField), 'Organización piloto');
     await tapFormButton(tester, 'Guardar organización');
     expect(auth.organizationConfigured, isTrue);
-    expect(find.text('Guardar empleado'), findsOneWidget);
+    expect(find.text('Volver al checador'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     auth.dispose();
   });

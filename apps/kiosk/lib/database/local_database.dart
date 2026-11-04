@@ -22,14 +22,16 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 10,
+        version: 11,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
+          await _createDepartments(db);
           await db.execute('''
             CREATE TABLE employees (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               number TEXT NOT NULL UNIQUE CHECK(length(trim(number)) BETWEEN 1 AND 30),
-              name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120)
+              name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+              department_id INTEGER REFERENCES departments(id)
             )
           ''');
           await _createAttendance(db);
@@ -80,6 +82,17 @@ class LocalDatabase {
               );
             }
           }
+          if (oldVersion < 11) {
+            await _createDepartments(db);
+            await db.execute(
+              'ALTER TABLE employees ADD COLUMN department_id INTEGER REFERENCES departments(id)',
+            );
+            if (oldVersion >= 2) {
+              await db.execute(
+                'ALTER TABLE attendance_events ADD COLUMN schedule_note TEXT',
+              );
+            }
+          }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
               'ALTER TABLE administrator ADD COLUMN recovery_salt BLOB',
@@ -103,7 +116,8 @@ class LocalDatabase {
         capture_method TEXT NOT NULL DEFAULT 'manual',
         similarity REAL,
         identity_model TEXT,
-        liveness_method TEXT
+        liveness_method TEXT,
+        schedule_note TEXT
       )
     ''');
     await db.execute(
@@ -214,6 +228,21 @@ class LocalDatabase {
     if (opening != null) {
       await (await opening).close();
     }
+  }
+
+  /// Horario por departamento, en minutos desde la medianoche. Si la salida es
+  /// menor que la entrada, el turno cruza la medianoche.
+  static Future<void> _createDepartments(Database db) async {
+    await db.execute('''
+      CREATE TABLE departments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK(length(trim(name)) BETWEEN 2 AND 80),
+        entry_minutes INTEGER NOT NULL CHECK(entry_minutes BETWEEN 0 AND 1439),
+        exit_minutes INTEGER NOT NULL CHECK(exit_minutes BETWEEN 0 AND 1439),
+        tolerance_minutes INTEGER NOT NULL DEFAULT 10 CHECK(tolerance_minutes BETWEEN 0 AND 240),
+        CHECK(entry_minutes <> exit_minutes)
+      )
+    ''');
   }
 
   static Future<void> _createFaceTemplates(Database db) async {

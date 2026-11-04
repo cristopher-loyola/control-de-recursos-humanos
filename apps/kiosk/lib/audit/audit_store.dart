@@ -21,6 +21,12 @@ enum AuditAction {
   ),
   passwordRecovered('password_recovered', 'Contraseña recuperada'),
   employeeCreated('employee_created', 'Empleado registrado'),
+  employeeDepartmentChanged(
+    'employee_department_changed',
+    'Departamento de empleado cambiado',
+  ),
+  departmentCreated('department_created', 'Departamento creado'),
+  departmentUpdated('department_updated', 'Horario de departamento cambiado'),
   consentRecorded('consent_recorded', 'Consentimiento documentado'),
   consentRevoked('consent_revoked', 'Consentimiento revocado'),
   attendanceReviewed('attendance_reviewed', 'Checada manual revisada'),
@@ -80,6 +86,11 @@ class AuditEntry {
         return 'Rostro asociado al empleado: ${details['employeeNumber']}';
       case AuditAction.employeeCreated:
         return 'Número de empleado: ${details['employeeNumber']}';
+      case AuditAction.employeeDepartmentChanged:
+        return 'Empleado ${details['employeeNumber']}: ${details['before'] ?? 'sin departamento'} → ${details['after']}';
+      case AuditAction.departmentCreated:
+      case AuditAction.departmentUpdated:
+        return '${details['name']}: ${details['entry']} a ${details['exit']}, tolerancia ${details['tolerance']} min';
       case AuditAction.consentRecorded:
         return 'Se registró el folio del consentimiento de ${details['employeeNumber']}.';
       case AuditAction.consentRevoked:

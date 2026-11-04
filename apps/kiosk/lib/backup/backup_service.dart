@@ -24,6 +24,7 @@ class BackupService {
       authorize();
       return BackupSnapshot.fromRows(
         createdAt: DateTime.now(),
+        departments: await txn.query('departments', orderBy: 'id'),
         employees: await txn.query('employees', orderBy: 'id'),
         events: await txn.query('attendance_events', orderBy: 'id'),
         reviews: await txn.query('attendance_reviews', orderBy: 'id'),
@@ -70,7 +71,11 @@ class BackupService {
       await txn.delete('consent_records');
       await txn.delete('attendance_events');
       await txn.delete('employees');
+      await txn.delete('departments');
       final batch = txn.batch();
+      for (final row in snapshot.departments) {
+        batch.insert('departments', row);
+      }
       for (final row in snapshot.employees) {
         batch.insert('employees', row);
       }

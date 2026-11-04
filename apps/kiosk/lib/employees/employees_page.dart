@@ -1,34 +1,25 @@
 import 'package:flutter/material.dart';
 
+import '../admin/admin_shell.dart';
+import '../departments/department_store.dart';
+import '../theme/app_theme.dart';
 import 'employee_store.dart';
 import 'employee_validation.dart';
 
+/// Alta rápida en un renglón y lista con búsqueda. Al guardar se abre de
+/// inmediato el registro de rostro del mismo empleado.
 class EmployeesPage extends StatefulWidget {
   const EmployeesPage({
     super.key,
     required this.store,
-    this.onOpenAttendance,
-    this.onOpenBackup,
-    this.onLogout,
-    this.onOpenAudit,
-    this.onOpenVisionDiagnostic,
-    this.onOpenConsents,
-    this.onOpenAttendanceReview,
-    this.onRotateRecoveryCode,
-    this.onCreateRhAccount,
+    this.departments,
     this.onEnrollFace,
   });
   final EmployeeStore store;
+
+  /// Si se indica, el alta pide departamento y la lista permite cambiarlo.
+  final DepartmentStore? departments;
   final Future<void> Function(Employee)? onEnrollFace;
-  final VoidCallback? onOpenAttendance;
-  final Future<void> Function()? onOpenBackup;
-  final VoidCallback? onLogout;
-  final VoidCallback? onOpenAudit;
-  final VoidCallback? onOpenVisionDiagnostic;
-  final VoidCallback? onOpenConsents;
-  final VoidCallback? onOpenAttendanceReview;
-  final Future<void> Function()? onRotateRecoveryCode;
-  final VoidCallback? onCreateRhAccount;
 
   @override
   State<EmployeesPage> createState() => _EmployeesPageState();
@@ -36,18 +27,20 @@ class EmployeesPage extends StatefulWidget {
 
 class _EmployeesPageState extends State<EmployeesPage> {
   final _form = GlobalKey<FormState>();
-  final _number = TextEditingController();
   final _name = TextEditingController();
+  final _search = TextEditingController();
   List<Employee> _employees = [];
+  List<Department> _departments = [];
+  int? _departmentId;
   bool _loading = true;
   bool _saving = false;
-  bool _rotatingRecoveryCode = false;
   String? _loadError;
   String? _message;
 
   @override
   void initState() {
     super.initState();
+    _search.addListener(() => setState(() {}));
     _load();
   }
 
@@ -58,8 +51,17 @@ class _EmployeesPageState extends State<EmployeesPage> {
     });
     try {
       final employees = await widget.store.list();
+      final departments = await widget.departments?.list() ?? <Department>[];
       if (mounted) {
-        setState(() => _employees = employees);
+        setState(() {
+          _employees = employees;
+          _departments = departments;
+          if (!departments.any((d) => d.id == _departmentId)) {
+            _departmentId = departments.length == 1
+                ? departments.single.id
+                : null;
+          }
+        });
       }
     } catch (_) {
       if (mounted) {
@@ -79,30 +81,30 @@ class _EmployeesPageState extends State<EmployeesPage> {
     if (_saving || !_form.currentState!.validate()) {
       return;
     }
+    if (_departments.isNotEmpty && _departmentId == null) {
+      setState(() => _message = 'Elige el departamento del empleado.');
+      return;
+    }
     setState(() {
       _saving = true;
       _message = null;
     });
     try {
-      final employee = Employee(
-        number: _number.text.trim(),
-        name: _name.text.trim(),
+      final name = _name.text.trim();
+      final number = await widget.store.register(
+        name,
+        departmentId: _departmentId,
       );
-      await widget.store.add(employee.number, employee.name);
+      final employee = Employee(number: number, name: name);
       if (!mounted) {
         return;
       }
-      _number.clear();
       _name.clear();
       _form.currentState!.reset();
-      setState(() => _message = 'Empleado guardado en esta tablet.');
+      setState(() => _message = '$name quedó registrado con el No. $number.');
       await _load();
       if (mounted && widget.onEnrollFace != null) {
         await _openEnrollment(employee);
-      }
-    } on DuplicateEmployee {
-      if (mounted) {
-        setState(() => _message = 'Ya existe un empleado con ese número.');
       }
     } catch (_) {
       if (mounted) {
@@ -119,8 +121,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
 
   @override
   void dispose() {
-    _number.dispose();
     _name.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -140,303 +142,282 @@ class _EmployeesPageState extends State<EmployeesPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    drawer: Drawer(
-      child: Builder(
-        builder: (drawerContext) => SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Secciones',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Ocultar menú',
-                      onPressed: () => Navigator.of(drawerContext).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
+  Future<void> _changeDepartment(Employee employee) async {
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text('Departamento de ${employee.name}'),
+        children: [
+          for (final department in _departments)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(department.id),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  department.id == employee.departmentId
+                      ? '${department.name} (actual)'
+                      : department.name,
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: Text('Elige la tarea que quieres realizar.'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.people_outline),
-                title: const Text('Empleados'),
-                subtitle: const Text('Registrar y consultar personal.'),
-                selected: true,
-                onTap: () => Navigator.of(drawerContext).pop(),
-              ),
-              if (widget.onOpenAttendanceReview != null)
-                ListTile(
-                  leading: const Icon(Icons.fact_check_outlined),
-                  title: const Text('Revisar asistencia'),
-                  subtitle: const Text('Aprobar o rechazar checadas.'),
-                  onTap: _saving || _loading
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onOpenAttendanceReview!();
-                        },
-                ),
-              if (widget.onOpenAttendance != null)
-                ListTile(
-                  leading: const Icon(Icons.access_time),
-                  title: const Text('Asistencia'),
-                  subtitle: const Text('Consultar entradas y salidas.'),
-                  onTap: _saving
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onOpenAttendance!();
-                        },
-                ),
-              if (widget.onOpenVisionDiagnostic != null)
-                ListTile(
-                  leading: const Icon(Icons.camera_alt_outlined),
-                  title: const Text('Diagnóstico de cámara'),
-                  subtitle: const Text(
-                    'Comprobar la detección local de rostros.',
-                  ),
-                  onTap: _saving || _loading
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onOpenVisionDiagnostic!();
-                        },
-                ),
-              if (widget.onOpenConsents != null)
-                ListTile(
-                  leading: const Icon(Icons.assignment_turned_in_outlined),
-                  title: const Text('Consentimientos'),
-                  subtitle: const Text(
-                    'Registrar folios de documentos firmados.',
-                  ),
-                  onTap: _saving || _loading
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onOpenConsents!();
-                        },
-                ),
-              if (widget.onCreateRhAccount != null ||
-                  widget.onRotateRecoveryCode != null ||
-                  widget.onOpenAudit != null ||
-                  widget.onOpenBackup != null)
-                const Divider(height: 32),
-              if (widget.onCreateRhAccount != null)
-                ListTile(
-                  leading: const Icon(Icons.person_add_alt_1_outlined),
-                  title: const Text('Cuentas de RH'),
-                  subtitle: const Text('Crear el acceso del personal de RH.'),
-                  onTap: _saving || _loading
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onCreateRhAccount!();
-                        },
-                ),
-              if (widget.onRotateRecoveryCode != null)
-                ListTile(
-                  leading: const Icon(Icons.key_outlined),
-                  title: const Text('Código de recuperación'),
-                  subtitle: const Text(
-                    'Generar un código nuevo para recuperar el acceso.',
-                  ),
-                  onTap: _saving || _loading || _rotatingRecoveryCode
-                      ? null
-                      : () async {
-                          Navigator.of(drawerContext).pop();
-                          setState(() => _rotatingRecoveryCode = true);
-                          try {
-                            await widget.onRotateRecoveryCode!();
-                          } catch (_) {
-                            if (mounted) {
-                              setState(
-                                () => _message = 'No se pudo generar el código. Vuelve a intentarlo.',
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() => _rotatingRecoveryCode = false);
-                            }
-                          }
-                        },
-                ),
-              if (widget.onOpenAudit != null)
-                ListTile(
-                  leading: const Icon(Icons.history),
-                  title: const Text('Historial de acciones'),
-                  subtitle: const Text(
-                    'Consultar cambios y accesos registrados.',
-                  ),
-                  onTap: _saving || _loading
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onOpenAudit!();
-                        },
-                ),
-              if (widget.onOpenBackup != null)
-                ListTile(
-                  leading: const Icon(Icons.backup_outlined),
-                  title: const Text('Respaldos'),
-                  subtitle: const Text(
-                    'Guardar o restaurar los datos de la tablet.',
-                  ),
-                  onTap: _saving || _loading
-                      ? null
-                      : () async {
-                          Navigator.of(drawerContext).pop();
-                          await widget.onOpenBackup!();
-                          if (mounted) {
-                            await _load();
-                          }
-                        },
-                ),
-              if (widget.onLogout != null) ...[
-                const Divider(height: 32),
-                ListTile(
-                  leading: const Icon(Icons.lock_outline),
-                  title: const Text('Cerrar sesión'),
-                  subtitle: const Text('Volver al checador de asistencia.'),
-                  onTap: _saving
-                      ? null
-                      : () {
-                          Navigator.of(drawerContext).pop();
-                          widget.onLogout!();
-                        },
-                ),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || chosen == employee.departmentId) return;
+    setState(() => _saving = true);
+    try {
+      await widget.store.setDepartment(employee.number, chosen);
+      await _load();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message = 'No se pudo cambiar el departamento.');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  List<Employee> get _visible {
+    final query = _search.text.trim().toLowerCase();
+    if (query.isEmpty) return _employees;
+    return _employees
+        .where(
+          (employee) =>
+              employee.name.toLowerCase().contains(query) ||
+              employee.number.contains(query),
+        )
+        .toList();
+  }
+
+  Widget _newEmployeeForm(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+    // Solo informativo: el número definitivo lo asigna la base al guardar.
+    final next =
+        _employees.fold<int>(0, (top, e) {
+          final value = int.tryParse(e.number) ?? 0;
+          return value > top ? value : top;
+        }) +
+        1;
+    final number = InputDecorator(
+      decoration: const InputDecoration(labelText: 'Número'),
+      child: Text(
+        _loading ? '…' : '$next',
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+      ),
+    );
+    final name = TextFormField(
+      controller: _name,
+      enabled: !_saving,
+      maxLength: 120,
+      decoration: const InputDecoration(
+        labelText: 'Nombre completo',
+        counterText: '',
+      ),
+      textCapitalization: TextCapitalization.words,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      validator: validateEmployeeName,
+      onFieldSubmitted: (_) => _save(),
+    );
+    final department = DropdownButtonFormField<int>(
+      initialValue: _departmentId,
+      isExpanded: true,
+      decoration: const InputDecoration(labelText: 'Departamento'),
+      items: [
+        for (final department in _departments)
+          DropdownMenuItem(value: department.id, child: Text(department.name)),
+      ],
+      onChanged: _saving
+          ? null
+          : (value) => setState(() => _departmentId = value),
+    );
+    final hasDepartments = _departments.isNotEmpty;
+    final save = FilledButton(
+      onPressed: _saving || _loading || _loadError != null ? null : _save,
+      child: Text(_saving ? 'Guardando…' : 'Guardar empleado'),
+    );
+    return Form(
+      key: _form,
+      child: wide
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 104, child: number),
+                const SizedBox(width: 12),
+                Expanded(child: name),
+                if (hasDepartments) ...[
+                  const SizedBox(width: 12),
+                  SizedBox(width: 220, child: department),
+                ],
+                const SizedBox(width: 12),
+                Padding(padding: const EdgeInsets.only(top: 4), child: save),
               ],
-            ],
-          ),
-        ),
-      ),
-    ),
-    appBar: AppBar(
-      title: const Text('Control de Recursos Humanos'),
-      leading: Builder(
-        builder: (scaffoldContext) => IconButton(
-          tooltip: 'Abrir menú',
-          onPressed: () => Scaffold.of(scaffoldContext).openDrawer(),
-          icon: const Icon(Icons.menu),
-        ),
-      ),
-    ),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 850),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              Text(
-                'Empleados',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Registra y consulta empleados en esta tablet, sin internet.',
-              ),
-              const SizedBox(height: 24),
-              Form(
-                key: _form,
-                child: Column(
-                  children: [
-                    TextFormField(
-                      controller: _number,
-                      enabled: !_saving,
-                      maxLength: 30,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Número de empleado',
-                        border: OutlineInputBorder(),
-                      ),
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      validator: validateEmployeeNumber,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _name,
-                      enabled: !_saving,
-                      maxLength: 120,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre completo',
-                        border: OutlineInputBorder(),
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      validator: validateEmployeeName,
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton(
-                      onPressed: _saving || _loading || _loadError != null
-                          ? null
-                          : _save,
-                      child: Text(_saving ? 'Guardando…' : 'Guardar empleado'),
-                    ),
-                  ],
-                ),
-              ),
-              if (_message != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Semantics(liveRegion: true, child: Text(_message!)),
-                ),
-              const Divider(height: 40),
-              if (_loading)
-                const Center(child: CircularProgressIndicator())
-              else if (_loadError != null) ...[
-                Text(_loadError!),
-                TextButton(
-                  onPressed: _load,
-                  child: const Text('Volver a intentar'),
-                ),
-              ] else ...[
-                Text(
-                  'Empleados registrados: ${_employees.length}',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                number,
                 const SizedBox(height: 12),
-                if (_employees.isEmpty)
-                  const Text('Aún no hay empleados registrados.'),
-                for (final employee in _employees)
-                  Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.person_outline),
-                      title: Text(employee.name),
-                      trailing: widget.onEnrollFace == null
-                          ? null
-                          : TextButton(
-                              onPressed: _saving || _loading
-                                  ? null
-                                  : () => _openEnrollment(employee),
-                              child: Text(
-                                employee.hasFace
-                                    ? 'Actualizar rostro'
-                                    : 'Registrar rostro',
-                              ),
-                            ),
-                      subtitle: Text(
-                        'Número: ${employee.number} · Rostro ${employee.hasFace ? 'registrado' : 'pendiente'}',
-                      ),
-                    ),
-                  ),
+                name,
+                if (hasDepartments) ...[const SizedBox(height: 12), department],
+                const SizedBox(height: 12),
+                save,
               ],
-            ],
+            ),
+    );
+  }
+
+  Widget _employeeRow(BuildContext context, Employee employee) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  employee.name,
+                  style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                Text.rich(
+                  TextSpan(
+                    style: text.bodySmall,
+                    children: [
+                      TextSpan(text: 'No. ${employee.number} · '),
+                      if (widget.departments != null)
+                        TextSpan(
+                          text: employee.departmentName == null
+                              ? 'Sin departamento · '
+                              : '${employee.departmentName} · ',
+                          style: employee.departmentName == null
+                              ? const TextStyle(color: AppColors.danger)
+                              : null,
+                        ),
+                      TextSpan(
+                        text: employee.hasFace
+                            ? 'Rostro registrado'
+                            : 'Rostro pendiente',
+                        style: employee.hasFace
+                            ? null
+                            : const TextStyle(color: AppColors.danger),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+          if (_departments.isNotEmpty)
+            TextButton(
+              onPressed: _saving || _loading
+                  ? null
+                  : () => _changeDepartment(employee),
+              child: Text(
+                employee.departmentName == null
+                    ? 'Asignar departamento'
+                    : 'Cambiar departamento',
+              ),
+            ),
+          if (widget.onEnrollFace != null)
+            employee.hasFace
+                ? TextButton(
+                    onPressed: _saving || _loading
+                        ? null
+                        : () => _openEnrollment(employee),
+                    child: const Text('Actualizar rostro'),
+                  )
+                : OutlinedButton(
+                    onPressed: _saving || _loading
+                        ? null
+                        : () => _openEnrollment(employee),
+                    child: const Text('Registrar rostro'),
+                  ),
+        ],
       ),
-    ),
-  );
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final visible = _visible;
+    final body = ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        Text('Nuevo empleado', style: text.titleMedium),
+        const SizedBox(height: 12),
+        if (widget.departments != null && !_loading && _departments.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Todavía no hay departamentos. Puedes registrar al empleado, pero sus checadas irán a revisión hasta que tenga uno.',
+              style: text.bodySmall,
+            ),
+          ),
+        _newEmployeeForm(context),
+        if (_message != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Semantics(liveRegion: true, child: Text(_message!)),
+          ),
+        const SizedBox(height: 32),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _loading ? 'Empleados' : 'Empleados (${_employees.length})',
+                style: text.titleMedium,
+              ),
+            ),
+            SizedBox(
+              width: 280,
+              child: TextField(
+                controller: _search,
+                decoration: const InputDecoration(
+                  hintText: 'Buscar por nombre o número',
+                  prefixIcon: Icon(Icons.search, size: 20),
+                  isDense: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_loadError != null) ...[
+          Text(_loadError!),
+          TextButton(onPressed: _load, child: const Text('Volver a intentar')),
+        ] else if (_employees.isEmpty)
+          const Text('Aún no hay empleados registrados.')
+        else if (visible.isEmpty)
+          const Text('Ningún empleado coincide con la búsqueda.')
+        else
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border.all(color: AppColors.line),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < visible.length; i++) ...[
+                  if (i > 0) const Divider(),
+                  _employeeRow(context, visible[i]),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+    if (EmbeddedInShell.of(context)) return body;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Empleados')),
+      body: SafeArea(child: body),
+    );
+  }
 }
