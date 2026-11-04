@@ -22,7 +22,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 9,
+        version: 10,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await db.execute('''
@@ -39,6 +39,7 @@ class LocalDatabase {
           await _createOrganization(db);
           await _createAttendanceReviews(db);
           await _createConsentRecords(db);
+          await _createFaceTemplates(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -62,6 +63,23 @@ class LocalDatabase {
           if (oldVersion < 9) {
             await _createConsentRecords(db);
           }
+          if (oldVersion < 10) {
+            await _createFaceTemplates(db);
+            if (oldVersion >= 2) {
+              await db.execute(
+                "ALTER TABLE attendance_events ADD COLUMN capture_method TEXT NOT NULL DEFAULT 'manual'",
+              );
+              await db.execute(
+                'ALTER TABLE attendance_events ADD COLUMN similarity REAL',
+              );
+              await db.execute(
+                'ALTER TABLE attendance_events ADD COLUMN identity_model TEXT',
+              );
+              await db.execute(
+                'ALTER TABLE attendance_events ADD COLUMN liveness_method TEXT',
+              );
+            }
+          }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
               'ALTER TABLE administrator ADD COLUMN recovery_salt BLOB',
@@ -81,7 +99,11 @@ class LocalDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         employee_number TEXT NOT NULL REFERENCES employees(number),
         kind TEXT NOT NULL CHECK(kind IN ('entry', 'exit')),
-        occurred_at INTEGER NOT NULL
+        occurred_at INTEGER NOT NULL,
+        capture_method TEXT NOT NULL DEFAULT 'manual',
+        similarity REAL,
+        identity_model TEXT,
+        liveness_method TEXT
       )
     ''');
     await db.execute(
@@ -192,5 +214,18 @@ class LocalDatabase {
     if (opening != null) {
       await (await opening).close();
     }
+  }
+
+  static Future<void> _createFaceTemplates(Database db) async {
+    await db.execute('''
+      CREATE TABLE face_templates (
+        id TEXT PRIMARY KEY,
+        employee_number TEXT NOT NULL UNIQUE REFERENCES employees(number),
+        consent_id INTEGER NOT NULL REFERENCES consent_records(id),
+        model_id TEXT NOT NULL,
+        encrypted_template BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
   }
 }

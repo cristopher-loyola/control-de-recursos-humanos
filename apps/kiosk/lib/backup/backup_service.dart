@@ -56,6 +56,16 @@ class BackupService {
     await db.transaction((txn) async {
       authorize();
       final name = actor?.call() ?? 'Administrador';
+      final faces = await txn.query(
+        'face_templates',
+        columns: ['id'],
+        limit: 1,
+      );
+      if (faces.isNotEmpty) {
+        throw const InvalidBackup(
+          'Esta tablet tiene rostros registrados. La restauración está bloqueada para conservarlos.',
+        );
+      }
       await txn.delete('attendance_reviews');
       await txn.delete('consent_records');
       await txn.delete('attendance_events');

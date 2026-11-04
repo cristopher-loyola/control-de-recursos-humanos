@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
         authorize: auth.requireStaff,
         actor: () => auth.accountName,
       ),
-      attendance: AttendanceStore(database),
+      attendance: AttendanceStore(database, authorizeRecord: auth.requireStaff),
       backups: BackupService(
         database,
         authorize: auth.requireAdmin,

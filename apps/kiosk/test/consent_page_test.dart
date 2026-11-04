@@ -40,8 +40,17 @@ void main() {
     tester,
   ) async {
     final store = MemoryConsentStore(DateTime(2026, 10, 30));
-    await tester.pumpWidget(MaterialApp(home: ConsentPage(store: store)));
+    String? checkedEmployee;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ConsentPage(
+          store: store,
+          onOpenFaceCheck: (number) => checkedEmployee = number,
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
+    expect(find.text('Comprobar encuadre facial'), findsNothing);
 
     await tester.tap(find.text('Registrar folio firmado'));
     await tester.pumpAndSettle();
@@ -58,6 +67,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.current, ConsentKind.recorded);
     expect(find.text('Documento de consentimiento registrado'), findsOneWidget);
+    await tester.tap(find.text('Comprobar encuadre facial'));
+    expect(checkedEmployee, '001');
 
     await tester.tap(find.text('Registrar revocación'));
     await tester.pumpAndSettle();
@@ -66,5 +77,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.current, ConsentKind.revoked);
     expect(find.text('Consentimiento revocado'), findsOneWidget);
+    expect(find.text('Comprobar encuadre facial'), findsNothing);
   });
 }

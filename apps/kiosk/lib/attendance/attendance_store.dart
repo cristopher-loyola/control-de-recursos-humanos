@@ -1,4 +1,7 @@
 import '../database/local_database.dart';
+import '../vision/face_engine.dart';
+import '../vision/face_template_store.dart';
+import '../vision/face_matching.dart';
 
 enum AttendanceKind {
   entry('entry', 'Entrada'),
@@ -38,10 +41,36 @@ class AttendanceEvent {
 }
 
 class AttendanceStore {
-  AttendanceStore(this.database, {DateTime Function()? clock})
-    : _clock = clock ?? DateTime.now;
+  AttendanceStore(
+    this.database, {
+    required this.authorizeRecord,
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
   final LocalDatabase database;
+  final void Function() authorizeRecord;
   final DateTime Function() _clock;
+
+  Future<AttendanceKind?> nextFor(String number) async {
+    final last = await lastFor(number);
+    final next = last?.kind == AttendanceKind.entry
+        ? AttendanceKind.exit
+        : AttendanceKind.entry;
+    final now = _clock().toLocal();
+    final start = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+    final end = DateTime(
+      now.year,
+      now.month,
+      now.day + 1,
+    ).millisecondsSinceEpoch;
+    final rows = await (await database.open()).query(
+      'attendance_events',
+      columns: ['id'],
+      where: 'employee_number = ? AND kind = ? AND occurred_at >= ? AND occurred_at < ?',
+      whereArgs: [number, next.value, start, end],
+      limit: 1,
+    );
+    return rows.isEmpty ? next : null;
+  }
 
   Future<AttendanceEvent?> lastFor(String number) async {
     final rows = await (await database.open()).rawQuery(
@@ -70,9 +99,40 @@ class AttendanceStore {
     return rows.map(AttendanceEvent.fromRow).toList();
   }
 
-  Future<void> record(String number, AttendanceKind kind) async {
+  Future<void> record(String number, AttendanceKind kind) =>
+      _record(number, kind);
+
+  Future<void> recordFacial(FaceMatch match, AttendanceKind kind) =>
+      _record(match.employeeNumber, kind, match: match);
+
+  Future<void> _record(
+    String number,
+    AttendanceKind kind, {
+    FaceMatch? match,
+  }) async {
+    if (match == null) authorizeRecord();
     final db = await database.open();
     await db.transaction((txn) async {
+      if (match == null) {
+        authorizeRecord();
+      } else {
+        match.claim(_clock().toUtc());
+        final valid = await txn.rawQuery(
+          '''
+          SELECT t.id FROM face_templates t JOIN consent_records c ON c.id = t.consent_id
+          WHERE t.id = ? AND t.employee_number = ? AND t.consent_id = ?
+          AND c.kind = 'recorded' AND c.id = (
+            SELECT id FROM consent_records WHERE employee_number = ? ORDER BY id DESC LIMIT 1
+          )
+        ''',
+          [match.templateId, number, match.consentId, number],
+        );
+        if (valid.isEmpty) {
+          throw const FaceRuleError(
+            'El registro facial ya no está vigente. Solicita apoyo a RH.',
+          );
+        }
+      }
       final employees = await txn.query(
         'employees',
         columns: ['number'],
@@ -142,6 +202,10 @@ class AttendanceStore {
         'employee_number': number,
         'kind': kind.value,
         'occurred_at': now.millisecondsSinceEpoch,
+        'capture_method': match == null ? 'manual' : 'facial',
+        'similarity': match?.score,
+        'identity_model': match == null ? null : FaceEngine.modelId,
+        'liveness_method': match == null ? null : 'blink_challenge_v1',
       });
     });
   }

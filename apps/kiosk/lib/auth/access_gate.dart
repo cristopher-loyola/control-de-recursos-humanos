@@ -6,6 +6,10 @@ import '../attendance/attendance_review_page.dart';
 import '../attendance/attendance_review_store.dart';
 import '../vision/consent_page.dart';
 import '../vision/consent_store.dart';
+import '../vision/face_engine.dart';
+import '../vision/face_template_store.dart';
+import '../vision/face_enrollment_page.dart';
+import '../vision/face_clock_page.dart';
 import '../backup/backup_page.dart';
 import '../backup/backup_service.dart';
 import '../employees/employee_store.dart';
@@ -120,6 +124,12 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
           listenable: widget.auth,
           builder: (context, _) {
             final auth = widget.auth;
+            final faces = FaceTemplateStore(
+              widget.attendance.database,
+              cipher: FaceEngine(),
+              authorizeEnrollment: auth.requireStaff,
+              actor: () => auth.accountName,
+            );
             return Navigator(
               key: ValueKey(
                 '${auth.configured}-${auth.isAuthenticated}-${auth.organizationConfigured}-${auth.isAdministrator}-${auth.pendingRecoveryCode != null}',
@@ -137,8 +147,8 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                     return AdminLoginPage(auth: auth, setup: true);
                   }
                   if (!auth.isAuthenticated) {
-                    return AttendancePage(
-                      employees: widget.employees,
+                    return FaceClockPage(
+                      faces: faces,
                       attendance: widget.attendance,
                       onOpenAdmin: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
@@ -174,17 +184,45 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                   }
                   return EmployeesPage(
                     store: widget.employees,
+                    onEnrollFace: (employee) async {
+                      auth.requireStaff();
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<bool>(
+                          builder: (_) => FaceEnrollmentPage(
+                            employee: employee,
+                            faces: faces,
+                            consents: ConsentStore(
+                              widget.attendance.database,
+                              authorize: auth.requireStaff,
+                              actor: () => auth.accountName,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                     onOpenConsents: auth.isAdministrator
                         ? () {
                             auth.requireAdmin();
+                            final consentStore = ConsentStore(
+                              widget.attendance.database,
+                              authorize: auth.requireAdmin,
+                              actor: () => auth.administratorName,
+                            );
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => ConsentPage(
-                                  store: ConsentStore(
-                                    widget.attendance.database,
-                                    authorize: auth.requireAdmin,
-                                    actor: () => auth.administratorName,
-                                  ),
+                                  store: consentStore,
+                                  onOpenFaceCheck: (employeeNumber) {
+                                    auth.requireAdmin();
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => VisionDiagnosticPage(
+                                          employeeNumber: employeeNumber,
+                                          consentStore: consentStore,
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             );

@@ -83,6 +83,33 @@ class ConsentStore {
     });
   }
 
+  Future<ConsentItem> requireActiveConsent(String employeeNumber) async {
+    authorize();
+    final db = await database.open();
+    return db.transaction((txn) async {
+      authorize();
+      final rows = await txn.rawQuery(
+        '''
+        SELECT e.number, e.name, c.kind, c.document_reference,
+               c.actor, c.occurred_at
+        FROM employees e
+        LEFT JOIN consent_records c ON c.id = (
+          SELECT id FROM consent_records
+          WHERE employee_number = e.number ORDER BY id DESC LIMIT 1
+        )
+        WHERE e.number = ?
+      ''',
+        [employeeNumber],
+      );
+      if (rows.isEmpty || rows.single['kind'] != ConsentKind.recorded.value) {
+        throw const ConsentRuleError(
+          'Se necesita un consentimiento vigente antes de abrir la cámara.',
+        );
+      }
+      return ConsentItem.fromRow(rows.single);
+    });
+  }
+
   Future<void> record(
     String employeeNumber,
     ConsentKind kind,
@@ -142,6 +169,13 @@ class ConsentStore {
         'actor': responsible,
         'occurred_at': now.millisecondsSinceEpoch,
       });
+      if (kind == ConsentKind.revoked) {
+        await txn.delete(
+          'face_templates',
+          where: 'employee_number = ?',
+          whereArgs: [employeeNumber],
+        );
+      }
       await writeAudit(
         txn,
         action: kind == ConsentKind.recorded

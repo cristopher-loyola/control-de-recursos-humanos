@@ -157,12 +157,12 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
               padding: const EdgeInsets.all(24),
               children: [
                 Text(
-                  'Checadas manuales',
+                  'Revisión de checadas',
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Estas checadas no verifican la identidad por sí solas. RH debe revisar cada una antes de usarla en pre-nómina.',
+                  'RH revisa las checadas antes de usarlas en pre-nómina. Las faciales usan reconocimiento sin prueba de vida todavía; pueden suplantarse con una foto.',
                 ),
                 const SizedBox(height: 20),
                 OutlinedButton.icon(
@@ -189,7 +189,7 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
                   ),
                 ],
                 if (!_loading && _items.isEmpty)
-                  const Text('No hay checadas manuales en este día.'),
+                  const Text('No hay checadas en este día.'),
                 for (final item in _items)
                   Card(
                     child: Padding(
@@ -207,6 +207,11 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(item.decision?.label ?? 'Pendiente de revisión'),
+                          Text(
+                            item.captureMethod == 'facial'
+                                ? 'Identificación facial · sin prueba de vida'
+                                : 'Registro manual · identidad sin verificar',
+                          ),
                           if (item.reason != null) ...[
                             const SizedBox(height: 4),
                             Text('Motivo: ${item.reason} · ${item.reviewer}'),

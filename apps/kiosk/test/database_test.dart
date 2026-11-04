@@ -26,7 +26,11 @@ void main() {
     );
     employees = EmployeeStore(database: database, authorize: () {});
     now = DateTime(2026, 10, 28, 8);
-    attendance = AttendanceStore(database, clock: () => now);
+    attendance = AttendanceStore(
+      database,
+      authorizeRecord: () {},
+      clock: () => now,
+    );
     backups = BackupService(database, authorize: () {});
   });
 
@@ -135,6 +139,26 @@ void main() {
       attendance.record('001', AttendanceKind.exit),
       throwsA(isA<AttendanceRuleError>()),
     );
+  });
+
+  test('La checada manual exige una sesión de personal autorizado', () async {
+    await employees.add('001', 'Ana Pérez');
+    var allowed = false;
+    final protectedAttendance = AttendanceStore(
+      database,
+      authorizeRecord: () {
+        if (!allowed) throw StateError('Sin acceso de RH');
+      },
+      clock: () => now,
+    );
+    await expectLater(
+      protectedAttendance.record('001', AttendanceKind.entry),
+      throwsStateError,
+    );
+    expect(await attendance.forDay(now), isEmpty);
+    allowed = true;
+    await protectedAttendance.record('001', AttendanceKind.entry);
+    expect(await attendance.forDay(now), hasLength(1));
   });
 
   test(

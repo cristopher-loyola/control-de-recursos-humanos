@@ -181,6 +181,10 @@ class _BackupPageState extends State<BackupPage> {
             child: ListView(
               padding: const EdgeInsets.all(24),
               children: [
+                const Text(
+                  'Los rostros cifrados permanecen en esta tablet y no se incluyen en este archivo. En otra tablet deben registrarse nuevamente. Para conservarlos, la restauración está bloqueada mientras haya rostros registrados.',
+                ),
+                const SizedBox(height: 16),
                 Text(
                   'Protege tus registros',
                   style: Theme.of(context).textTheme.headlineMedium,

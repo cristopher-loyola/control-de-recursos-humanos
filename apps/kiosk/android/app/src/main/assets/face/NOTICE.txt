@@ -1,0 +1,14 @@
+SFace face recognition model, OpenCV Zoo.
+Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface
+Asset: face_recognition_sface_2021dec.onnx (unmodified)
+SHA-256: 0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79
+License: Apache-2.0, see LICENSE-SFACE.txt.
+SFace contributed by Yaoyao Zhong; ONNX conversion by Chengrui Wang.
+The model performs identity embeddings. It does not perform presentation attack detection.
+
+YuNet face detection model, OpenCV Zoo.
+Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet
+Asset: face_detection_yunet_2023mar.onnx (unmodified), stored as yunet.onnx
+SHA-256: 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+License: MIT, see LICENSE-YUNET.txt.
+The model detects faces and five landmarks. It does not perform presentation attack detection.

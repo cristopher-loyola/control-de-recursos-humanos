@@ -6,9 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
+import 'consent_store.dart';
+import 'face_capture_quality.dart';
+
 /// Diagnóstico local de cámara. No identifica personas ni guarda imágenes.
 class VisionDiagnosticPage extends StatefulWidget {
-  const VisionDiagnosticPage({super.key});
+  const VisionDiagnosticPage({
+    super.key,
+    this.employeeNumber,
+    this.consentStore,
+  });
+
+  final String? employeeNumber;
+  final ConsentStore? consentStore;
 
   @override
   State<VisionDiagnosticPage> createState() => _VisionDiagnosticPageState();
@@ -28,7 +38,9 @@ class _VisionDiagnosticPageState extends State<VisionDiagnosticPage>
   int _faces = 0;
   int? _latencyMs;
   int _analyzedFrames = 0;
+  int _goodFrames = 0;
   DateTime? _lastAnalysis;
+  String? _employeeName;
   String _status = 'Iniciando cámara…';
 
   static const _orientations = <DeviceOrientation, int>{
@@ -62,6 +74,20 @@ class _VisionDiagnosticPageState extends State<VisionDiagnosticPage>
       return;
     }
     try {
+      final employeeNumber = widget.employeeNumber;
+      if (employeeNumber != null) {
+        final consentStore = widget.consentStore;
+        if (consentStore == null) {
+          throw const ConsentRuleError(
+            'No se pudo verificar el consentimiento.',
+          );
+        }
+        final employee = await consentStore.requireActiveConsent(
+          employeeNumber,
+        );
+        if (_disposed || !mounted) return;
+        setState(() => _employeeName = employee.employeeName);
+      }
       final cameras = await availableCameras();
       if (_disposed || !mounted) return;
       if (cameras.isEmpty) {
@@ -88,6 +114,10 @@ class _VisionDiagnosticPageState extends State<VisionDiagnosticPage>
       await controller.startImageStream(_onFrame);
       if (mounted) {
         setState(() => _status = 'Buscando rostros…');
+      }
+    } on ConsentRuleError catch (error) {
+      if (mounted) {
+        setState(() => _status = error.message);
       }
     } on CameraException catch (error) {
       await _stopCamera();
@@ -180,16 +210,33 @@ class _VisionDiagnosticPageState extends State<VisionDiagnosticPage>
     try {
       final faces = await _detector.processImage(image);
       timer.stop();
+      final rotated =
+          image.metadata?.rotation == InputImageRotation.rotation90deg ||
+          image.metadata?.rotation == InputImageRotation.rotation270deg;
+      final rawSize = image.metadata?.size ?? Size.zero;
+      final size = rotated ? Size(rawSize.height, rawSize.width) : rawSize;
+      final issue = FaceCaptureQuality.issue(
+        faceCount: faces.length,
+        faceBounds: faces.length == 1 ? faces.single.boundingBox : null,
+        imageSize: size,
+        headRoll: faces.length == 1 ? faces.single.headEulerAngleZ : null,
+        headYaw: faces.length == 1 ? faces.single.headEulerAngleY : null,
+      );
       if (mounted && !_disposed) {
         setState(() {
           _faces = faces.length;
           _latencyMs = timer.elapsedMilliseconds;
           _analyzedFrames++;
-          _status = faces.isEmpty
-              ? 'No hay rostros en el cuadro.'
-              : faces.length == 1
-              ? 'Se detectó un rostro.'
-              : 'Se detectaron ${faces.length} rostros.';
+          _goodFrames = issue == null
+              ? (_goodFrames < 3 ? _goodFrames + 1 : 3)
+              : 0;
+          _status = widget.employeeNumber == null
+              ? faces.isEmpty
+                    ? 'No hay rostros en el cuadro.'
+                    : faces.length == 1
+                    ? 'Se detectó un rostro.'
+                    : 'Se detectaron ${faces.length} rostros.'
+              : issue ?? 'Encuadre estable ($_goodFrames/3 cuadros).';
         });
       }
     } catch (_) {
@@ -223,9 +270,12 @@ class _VisionDiagnosticPageState extends State<VisionDiagnosticPage>
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final preparing = widget.employeeNumber != null;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Diagnóstico de cámara'),
+        title: Text(
+          preparing ? 'Preparar captura facial' : 'Diagnóstico de cámara',
+        ),
         actions: [
           IconButton(
             tooltip: 'Girar imagen 180 grados',
@@ -242,15 +292,25 @@ class _VisionDiagnosticPageState extends State<VisionDiagnosticPage>
               padding: const EdgeInsets.all(24),
               children: [
                 Text(
-                  'Detección local de rostros',
+                  preparing
+                      ? 'Encuadre de ${_employeeName ?? 'empleado'}'
+                      : 'Detección local de rostros',
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Esta prueba no identifica empleados, no registra checadas y no guarda imágenes.',
+                Text(
+                  preparing
+                      ? 'Comprueba que la cámara vea un solo rostro, centrado y completo. Esta prueba no guarda imágenes ni datos biométricos y todavía no registra al empleado por su rostro.'
+                      : 'Esta prueba no identifica empleados, no registra checadas y no guarda imágenes.',
                 ),
                 const SizedBox(height: 16),
                 Text(_status, style: Theme.of(context).textTheme.titleMedium),
+                if (preparing && _goodFrames >= 3) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Encuadre listo para el futuro enrolamiento. La identificación y la prueba de vida aún están pendientes.',
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   'Rostros: $_faces  ·  Análisis: ${_latencyMs == null ? '—' : '$_latencyMs ms'}  ·  Cuadros analizados: $_analyzedFrames',

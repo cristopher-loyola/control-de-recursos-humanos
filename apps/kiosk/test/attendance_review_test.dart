@@ -32,7 +32,11 @@ void main() {
       factory: databaseFactoryFfi,
     );
     employees = EmployeeStore(database: database, authorize: () {});
-    attendance = AttendanceStore(database, clock: () => day);
+    attendance = AttendanceStore(
+      database,
+      authorizeRecord: () {},
+      clock: () => day,
+    );
     reviews = AttendanceReviewStore(
       database,
       authorize: () {

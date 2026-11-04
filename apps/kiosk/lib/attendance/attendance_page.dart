@@ -10,10 +10,12 @@ class AttendancePage extends StatefulWidget {
     super.key,
     required this.employees,
     required this.attendance,
+    this.publicMode = false,
     this.onOpenAdmin,
   });
   final EmployeeStore employees;
   final AttendanceStore attendance;
+  final bool publicMode;
   final VoidCallback? onOpenAdmin;
 
   @override
@@ -35,6 +37,10 @@ class _AttendancePageState extends State<AttendancePage> {
   @override
   void initState() {
     super.initState();
+    if (widget.publicMode) {
+      _loading = false;
+      return;
+    }
     _load();
     _dayTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       final now = DateTime.now();
@@ -49,6 +55,7 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _load() async {
+    if (widget.publicMode) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -99,6 +106,7 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _record(AttendanceKind kind) async {
+    if (widget.publicMode) return;
     final number = _selected;
     if (number == null || _saving || _loading || _error != null) {
       return;
@@ -156,6 +164,49 @@ class _AttendancePageState extends State<AttendancePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.publicMode) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Entradas y salidas'),
+          actions: [
+            if (widget.onOpenAdmin != null)
+              TextButton.icon(
+                onPressed: widget.onOpenAdmin,
+                icon: const Icon(Icons.admin_panel_settings_outlined),
+                label: const Text('Administrar'),
+              ),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Checador',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'La checada facial todavía está en desarrollo. Si necesitas registrar una entrada o salida, solicita apoyo a RH o al administrador.',
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'El personal autorizado puede registrar una checada manual y dejarla pendiente de revisión.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final busy = _loading || _saving;
     final nextKind = _last?.kind == AttendanceKind.entry
         ? AttendanceKind.exit

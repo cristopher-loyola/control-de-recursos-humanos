@@ -5,9 +5,14 @@ import 'employee_validation.dart';
 import '../audit/audit_store.dart';
 
 class Employee {
-  const Employee({required this.number, required this.name});
+  const Employee({
+    required this.number,
+    required this.name,
+    this.hasFace = false,
+  });
   final String number;
   final String name;
+  final bool hasFace;
 }
 
 class DuplicateEmployee implements Exception {}
@@ -24,15 +29,16 @@ class EmployeeStore {
   final String Function()? actor;
 
   Future<List<Employee>> list() async {
-    final rows = await (await _database.open()).query(
-      'employees',
-      orderBy: 'name COLLATE NOCASE, number',
-    );
+    final rows = await (await _database.open()).rawQuery('''
+      SELECT e.*, EXISTS(SELECT 1 FROM face_templates t WHERE t.employee_number = e.number) AS has_face
+      FROM employees e ORDER BY e.name COLLATE NOCASE, e.number
+    ''');
     return rows
         .map(
           (row) => Employee(
             number: row['number'] as String,
             name: row['name'] as String,
+            hasFace: row['has_face'] == 1,
           ),
         )
         .toList();

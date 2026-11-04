@@ -16,8 +16,10 @@ class EmployeesPage extends StatefulWidget {
     this.onOpenAttendanceReview,
     this.onRotateRecoveryCode,
     this.onCreateRhAccount,
+    this.onEnrollFace,
   });
   final EmployeeStore store;
+  final Future<void> Function(Employee)? onEnrollFace;
   final VoidCallback? onOpenAttendance;
   final Future<void> Function()? onOpenBackup;
   final VoidCallback? onLogout;
@@ -82,7 +84,11 @@ class _EmployeesPageState extends State<EmployeesPage> {
       _message = null;
     });
     try {
-      await widget.store.add(_number.text, _name.text);
+      final employee = Employee(
+        number: _number.text.trim(),
+        name: _name.text.trim(),
+      );
+      await widget.store.add(employee.number, employee.name);
       if (!mounted) {
         return;
       }
@@ -91,6 +97,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
       _form.currentState!.reset();
       setState(() => _message = 'Empleado guardado en esta tablet.');
       await _load();
+      if (mounted && widget.onEnrollFace != null) {
+        await _openEnrollment(employee);
+      }
     } on DuplicateEmployee {
       if (mounted) {
         setState(() => _message = 'Ya existe un empleado con ese número.');
@@ -113,6 +122,22 @@ class _EmployeesPageState extends State<EmployeesPage> {
     _number.dispose();
     _name.dispose();
     super.dispose();
+  }
+
+  Future<void> _openEnrollment(Employee employee) async {
+    setState(() => _saving = true);
+    try {
+      await widget.onEnrollFace!(employee);
+      if (mounted) await _load();
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _message = 'El empleado está guardado. No se pudo abrir la captura del rostro; vuelve a intentarlo.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -156,7 +181,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 ListTile(
                   leading: const Icon(Icons.fact_check_outlined),
                   title: const Text('Revisar asistencia'),
-                  subtitle: const Text('Aprobar o rechazar checadas manuales.'),
+                  subtitle: const Text('Aprobar o rechazar checadas.'),
                   onTap: _saving || _loading
                       ? null
                       : () {
@@ -390,7 +415,21 @@ class _EmployeesPageState extends State<EmployeesPage> {
                     child: ListTile(
                       leading: const Icon(Icons.person_outline),
                       title: Text(employee.name),
-                      subtitle: Text('Número: ${employee.number}'),
+                      trailing: widget.onEnrollFace == null
+                          ? null
+                          : TextButton(
+                              onPressed: _saving || _loading
+                                  ? null
+                                  : () => _openEnrollment(employee),
+                              child: Text(
+                                employee.hasFace
+                                    ? 'Actualizar rostro'
+                                    : 'Registrar rostro',
+                              ),
+                            ),
+                      subtitle: Text(
+                        'Número: ${employee.number} · Rostro ${employee.hasFace ? 'registrado' : 'pendiente'}',
+                      ),
                     ),
                   ),
               ],
