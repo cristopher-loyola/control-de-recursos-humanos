@@ -1,0 +1,384 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'face_capture_quality.dart';
+import 'face_engine.dart';
+import 'face_matching.dart';
+
+class FaceCapturePanel extends StatefulWidget {
+  const FaceCapturePanel({
+    super.key,
+    required this.onSamples,
+    this.beforeStart,
+    this.guidedEnrollment = false,
+  });
+  final Future<void> Function(List<List<double>>) onSamples;
+  final Future<void> Function()? beforeStart;
+  final bool guidedEnrollment;
+
+  @override
+  State<FaceCapturePanel> createState() => _FaceCapturePanelState();
+}
+
+class _FaceCapturePanelState extends State<FaceCapturePanel>
+    with WidgetsBindingObserver {
+  final _engine = FaceEngine();
+  final _samples = <List<double>>[];
+  // En el registro se espacian las tomas para obtener variación natural.
+  Duration get _sampleSpacing => widget.guidedEnrollment
+      ? const Duration(milliseconds: 400)
+      : Duration.zero;
+  CameraController? _controller;
+  CameraDescription? _camera;
+  Future<void> _operations = Future.value();
+  Future<void>? _frameWork;
+  bool _disposed = false;
+  bool _finished = false;
+  bool _halfTurn = false;
+  bool _failed = false;
+  bool _analysisHalfTurn = false;
+  Rect? _lastBox;
+  DateTime? _lastSampleAt;
+  int _epoch = 0;
+  String _status = 'Preparando la cámara…';
+
+  void _showStatus(String status) {
+    if (mounted && !_disposed && _status != status) {
+      setState(() => _status = status);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _operations = _operations.then((_) => _start());
+  }
+
+  void _reset() {
+    _samples.clear();
+    _lastBox = null;
+    _lastSampleAt = null;
+  }
+
+  Future<void> _start() async {
+    if (_disposed || _controller != null || _finished) return;
+    try {
+      if (!Platform.isAndroid) throw StateError('Android requerido');
+      await widget.beforeStart?.call();
+      final setup = await Future.wait<Object>([
+        _engine.initialize().then<Object>((_) => true),
+        availableCameras(),
+      ]);
+      _halfTurn = await _engine.cameraRotation();
+      final cameras = setup[1] as List<CameraDescription>;
+      if (_disposed) return;
+      if (cameras.isEmpty) throw StateError('Cámara no disponible');
+      _camera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+      final controller = CameraController(
+        _camera!,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.nv21,
+      );
+      await controller.initialize();
+      if (_disposed) {
+        await controller.dispose();
+        return;
+      }
+      _controller = controller;
+      _analysisHalfTurn = false;
+      _reset();
+      _failed = false;
+      await controller.startImageStream(_onFrame);
+      _showStatus('Coloca tu rostro en el centro.');
+    } catch (_) {
+      await _stop();
+      if (mounted) {
+        setState(() {
+          _failed = true;
+          _status = 'No se pudo abrir la cámara o verificar el acceso. Revisa el permiso de cámara y vuelve a intentar.';
+        });
+      }
+    }
+  }
+
+  Future<void> _stop() async {
+    _epoch++;
+    final controller = _controller;
+    _controller = null;
+    _camera = null;
+    _reset();
+    if (mounted && !_disposed) {
+      setState(() => _status = 'Cámara pausada.');
+      // Detach CameraPreview before disposing the controller it renders.
+      await WidgetsBinding.instance.endOfFrame.timeout(
+        const Duration(milliseconds: 300),
+        onTimeout: () {},
+      );
+    }
+    if (controller != null) {
+      try {
+        if (controller.value.isStreamingImages) {
+          await controller.stopImageStream();
+        }
+      } on CameraException {
+        /* Android may have already released the stream. */
+      }
+      await _frameWork;
+      await controller.dispose();
+    } else {
+      await _frameWork;
+    }
+  }
+
+  void _onFrame(CameraImage frame) {
+    if (_disposed || _finished || _frameWork != null) {
+      return;
+    }
+    final epoch = _epoch;
+    _frameWork = _process(frame, epoch).whenComplete(() => _frameWork = null);
+  }
+
+  Future<void> _process(CameraImage frame, int epoch) async {
+    try {
+      final camera = _camera;
+      final controller = _controller;
+      if (camera == null ||
+          controller == null ||
+          frame.planes.length != 1 ||
+          frame.format.group != ImageFormatGroup.nv21 ||
+          frame.planes.single.bytes.length !=
+              frame.width * frame.height * 3 ~/ 2) {
+        _showStatus('La cámara no entrega un formato compatible.');
+        return;
+      }
+      const orientations = {
+        DeviceOrientation.portraitUp: 0,
+        DeviceOrientation.landscapeLeft: 90,
+        DeviceOrientation.portraitDown: 180,
+        DeviceOrientation.landscapeRight: 270,
+      };
+      final orientation = orientations[controller.value.deviceOrientation]!;
+      var degrees =
+          ((camera.lensDirection == CameraLensDirection.front
+                  ? camera.sensorOrientation + orientation
+                  : camera.sensorOrientation - orientation + 360) +
+              (_halfTurn ? 180 : 0) +
+              (_analysisHalfTurn ? 180 : 0)) %
+          360;
+      final bytes = Uint8List.fromList(frame.planes.single.bytes);
+      Future<FaceDetection> detectAt(int angle) => _engine.detect(
+        bytes: bytes,
+        width: frame.width,
+        height: frame.height,
+        rotation: angle,
+      );
+      List<DetectedFace> peopleIn(FaceDetection detection) =>
+          FaceCaptureQuality.people(detection.faces, (face) => face.box);
+
+      var detection = await detectAt(degrees);
+      var faces = peopleIn(detection);
+      if (_disposed || epoch != _epoch || !mounted) return;
+      final retry = faces.length == 1
+          ? FaceCaptureQuality.uprightRetry(degrees, faces.single.roll)
+          : null;
+      if (retry != null) {
+        final corrected = await detectAt(retry);
+        final correctedFaces = peopleIn(corrected);
+        if (_disposed || epoch != _epoch || !mounted) return;
+        if (correctedFaces.length == 1 &&
+            correctedFaces.single.roll.abs() <= 20) {
+          degrees = retry;
+          detection = corrected;
+          faces = correctedFaces;
+          _analysisHalfTurn = !_analysisHalfTurn;
+          _reset();
+        }
+      }
+      final face = faces.length == 1 ? faces.single : null;
+      final issue = FaceCaptureQuality.issue(
+        faceCount: faces.length,
+        faceBounds: face?.box,
+        imageSize: detection.size,
+        headRoll: face?.roll,
+        headYaw: face?.yaw,
+        maxYaw: widget.guidedEnrollment ? 25 : 20,
+      );
+      if (issue != null || face == null) {
+        _reset();
+        _showStatus(issue ?? 'Muestra un solo rostro.');
+        return;
+      }
+      // Sin seguimiento entre cuadros: si el rostro salta de lugar, se reinicia la lectura.
+      final previous = _lastBox;
+      _lastBox = face.box;
+      if (previous != null &&
+          (face.box.center - previous.center).distance >
+              previous.width * 0.35) {
+        _reset();
+      }
+      final now = DateTime.now();
+      if (_lastSampleAt != null &&
+          now.difference(_lastSampleAt!) < _sampleSpacing) {
+        return;
+      }
+      final vector = await _engine.extractDetected(face.index);
+      if (_disposed || epoch != _epoch || !mounted) return;
+      _samples.add(vector);
+      _lastSampleAt = now;
+      _showStatus('Leyendo rostro ${_samples.length}/3. Mantente quieto.');
+      if (_samples.length == FaceMatching.sampleCount) {
+        final samples = FaceMatching.samples(_samples);
+        _finished = true;
+        _showStatus(
+          widget.guidedEnrollment
+              ? 'Guardando rostro…'
+              : 'Procesando identificación…',
+        );
+        await widget.onSamples(samples);
+      }
+    } on FaceRuleError catch (error) {
+      _finished = false;
+      _reset();
+      _showStatus(error.message);
+    } catch (_) {
+      _reset();
+      _finished = false;
+      _showStatus(
+        'No se pudo leer el rostro. Mira de frente e inténtalo de nuevo.',
+      );
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _operations = _operations.then((_) => _stop());
+    } else if (state == AppLifecycleState.resumed) {
+      _operations = _operations.then((_) => _start());
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    _operations = _operations.then((_) => _stop());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final camera = _controller;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          liveRegion: true,
+          child: Text(_status, style: Theme.of(context).textTheme.titleMedium),
+        ),
+        const SizedBox(height: 12),
+        if (widget.guidedEnrollment) ...[
+          Text(
+            'Lectura ${_samples.length} de 3 · Mira de frente dentro del contorno',
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(value: _samples.length / 3),
+          const SizedBox(height: 12),
+        ],
+        SizedBox(
+          height: widget.guidedEnrollment
+              ? (MediaQuery.sizeOf(context).height - 330).clamp(180.0, 360.0)
+              : null,
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: ColoredBox(
+                color: Colors.black,
+                child: camera != null && camera.value.isInitialized
+                    ? Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Center(
+                            child: RotatedBox(
+                              quarterTurns: _halfTurn ? 2 : 0,
+                              child: CameraPreview(camera),
+                            ),
+                          ),
+                          if (widget.guidedEnrollment)
+                            IgnorePointer(
+                              child: CustomPaint(painter: _FaceGuidePainter()),
+                            ),
+                        ],
+                      )
+                    : Center(
+                        child: _failed
+                            ? const Icon(
+                                Icons.no_photography_outlined,
+                                color: Colors.white,
+                                size: 48,
+                              )
+                            : const CircularProgressIndicator(),
+                      ),
+              ),
+            ),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: _finished
+              ? null
+              : () async {
+                  _epoch++;
+                  _reset();
+                  _analysisHalfTurn = false;
+                  setState(() => _halfTurn = !_halfTurn);
+                  await _engine.setCameraRotation(_halfTurn);
+                },
+          icon: const Icon(Icons.rotate_right),
+          label: const Text('Girar imagen 180 grados'),
+        ),
+        if (_failed)
+          TextButton(
+            onPressed: () => _operations = _operations.then((_) => _start()),
+            child: const Text('Volver a intentar'),
+          ),
+      ],
+    );
+  }
+}
+
+class _FaceGuidePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final oval = Rect.fromCenter(
+      center: size.center(Offset.zero),
+      width: size.height * 0.55,
+      height: size.height * 0.82,
+    );
+    final shade = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addOval(oval);
+    canvas.drawPath(shade, Paint()..color = Colors.black38);
+    canvas.drawOval(
+      oval,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FaceGuidePainter oldDelegate) => false;
+}

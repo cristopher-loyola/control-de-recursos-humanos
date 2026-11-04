@@ -5,6 +5,7 @@ import {
   Inject,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Public } from '../auth/access.js';
 import { PrismaService } from '../database/prisma.service.js';
 
 @Controller('health')
@@ -14,6 +15,7 @@ export class HealthController {
     private readonly database: Pick<PrismaService, '$queryRaw'>,
   ) {}
 
+  @Public()
   @Get()
   @Header('Cache-Control', 'no-store')
   async check() {

@@ -1,8 +1,19 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Flutter integration tests uninstall their target by default. Give that target
+// a separate Android sandbox so testing can never uninstall the working kiosk.
+val integrationBuild = providers.gradleProperty("dart-defines").orNull.orEmpty()
+    .split(",").any { encoded ->
+        runCatching { String(Base64.getDecoder().decode(encoded), Charsets.UTF_8) }
+            .getOrDefault("")
+            .startsWith("INTEGRATION_TEST_SHOULD_REPORT_RESULTS_TO_NATIVE=")
+    }
 
 android {
     namespace = "com.example.kiosk"
@@ -16,7 +27,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.kiosk"
+        applicationId = if (integrationBuild) "com.example.kiosk.integrationtest" else "com.example.kiosk"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
@@ -46,4 +57,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("org.opencv:opencv:4.13.0")
 }

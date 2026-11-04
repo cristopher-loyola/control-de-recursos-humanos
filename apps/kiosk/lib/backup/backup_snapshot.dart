@@ -31,7 +31,7 @@ class BackupSnapshot {
     utf8.encode(
       jsonEncode({
         'format': 'control-recursos-humanos',
-        'version': 3,
+        'version': 4,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'employees': employees,
         'attendance': events,
@@ -55,7 +55,7 @@ class BackupSnapshot {
     }
     if (raw is! Map<String, dynamic> ||
         raw['format'] != 'control-recursos-humanos' ||
-        raw['version'] != 1 && raw['version'] != 2 && raw['version'] != 3) {
+        ![1, 2, 3, 4].contains(raw['version'])) {
       throw const InvalidBackup(
         'Este archivo no corresponde a una versión de respaldo compatible.',
       );
@@ -67,7 +67,7 @@ class BackupSnapshot {
     final reviewRows = raw['version'] == 1
         ? <Object?>[]
         : raw['attendanceReviews'];
-    final consentRows = raw['version'] == 3
+    final consentRows = raw['version'] == 3 || raw['version'] == 4
         ? raw['consentRecords']
         : <Object?>[];
     if (createdAt == null ||
@@ -122,6 +122,24 @@ class BackupSnapshot {
       final number = row['employee_number'];
       final kind = row['kind'];
       final time = row['occurred_at'];
+      final method = raw['version'] == 4
+          ? row['capture_method'] ?? 'manual'
+          : 'manual';
+      final similarity = row['similarity'];
+      final model = row['identity_model'];
+      final liveness = row['liveness_method'];
+      if (method != 'manual' && method != 'facial' ||
+          method == 'facial' &&
+              (similarity is! num ||
+                  !similarity.isFinite ||
+                  similarity < -1 ||
+                  similarity > 1 ||
+                  !_validText(model, 100) ||
+                  liveness != 'blink_challenge_v1')) {
+        throw const InvalidBackup(
+          'El respaldo contiene información facial inválida.',
+        );
+      }
       if (!_validId(id) ||
           !eventIds.add(id as int) ||
           number is! String ||
@@ -140,6 +158,10 @@ class BackupSnapshot {
           'employee_number': number,
           'kind': kind,
           'occurred_at': time,
+          'capture_method': method,
+          'similarity': method == 'facial' ? similarity : null,
+          'identity_model': method == 'facial' ? model : null,
+          'liveness_method': method == 'facial' ? liveness : null,
         }),
       );
     }
@@ -260,7 +282,7 @@ class BackupSnapshot {
       utf8.encode(
         jsonEncode({
           'format': 'control-recursos-humanos',
-          'version': 3,
+          'version': 4,
           'createdAt': createdAt.toUtc().toIso8601String(),
           'employees': employees,
           'attendance': events,

@@ -24,6 +24,34 @@ class MemoryEmployeeStore extends EmployeeStore {
 }
 
 void main() {
+  testWidgets('Después del alta abre el registro facial con el mismo ID', (
+    tester,
+  ) async {
+    final store = MemoryEmployeeStore();
+    Employee? captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmployeesPage(
+          store: store,
+          onEnrollFace: (employee) async {
+            captured = employee;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), '007');
+    await tester.enterText(find.byType(TextFormField).at(1), 'María López');
+    final save = find.text('Guardar empleado');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(captured?.number, '007');
+    expect(captured?.name, 'María López');
+    expect(store.employees.single.number, '007');
+    expect(find.textContaining('Rostro pendiente'), findsOneWidget);
+  });
+
   testWidgets('Valida campos, muestra el empleado y rechaza duplicados', (
     tester,
   ) async {

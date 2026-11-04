@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/local_database.dart';
 
 enum AuditAction {
+  faceEnrolled('face_enrolled', 'Rostro registrado'),
   administratorCreated('administrator_created', 'Administrador configurado'),
   rhAccountCreated('rh_account_created', 'Cuenta de RH creada'),
   organizationConfigured('organization_configured', 'Organización configurada'),
@@ -75,6 +76,8 @@ class AuditEntry {
 
   String get description {
     switch (action) {
+      case AuditAction.faceEnrolled:
+        return 'Rostro asociado al empleado: ${details['employeeNumber']}';
       case AuditAction.employeeCreated:
         return 'Número de empleado: ${details['employeeNumber']}';
       case AuditAction.consentRecorded:

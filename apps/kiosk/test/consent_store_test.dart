@@ -47,14 +47,26 @@ void main() {
     'Registra y revoca sin perder el historial ni permitir duplicados',
     () async {
       expect((await consents.list()).single.kind, isNull);
+      await expectLater(
+        consents.requireActiveConsent('001'),
+        throwsA(isA<ConsentRuleError>()),
+      );
       await consents.record('001', ConsentKind.recorded, 'CONS-2026-001');
       expect((await consents.list()).single.active, isTrue);
+      expect(
+        (await consents.requireActiveConsent('001')).employeeName,
+        'Ana Pérez',
+      );
       await expectLater(
         consents.record('001', ConsentKind.recorded, 'CONS-2026-002'),
         throwsA(isA<ConsentRuleError>()),
       );
       await consents.record('001', ConsentKind.revoked, 'REV-2026-001');
       expect((await consents.list()).single.active, isFalse);
+      await expectLater(
+        consents.requireActiveConsent('001'),
+        throwsA(isA<ConsentRuleError>()),
+      );
       await expectLater(
         consents.record('001', ConsentKind.revoked, 'REV-2026-002'),
         throwsA(isA<ConsentRuleError>()),
@@ -87,6 +99,7 @@ void main() {
     );
     allowed = false;
     await expectLater(consents.list(), throwsStateError);
+    await expectLater(consents.requireActiveConsent('001'), throwsStateError);
     await expectLater(
       consents.record('001', ConsentKind.recorded, 'CONS-2026-001'),
       throwsStateError,
@@ -113,6 +126,9 @@ void main() {
       options: OpenDatabaseOptions(
         version: 8,
         onCreate: (db, version) async {
+          await db.execute(
+            'CREATE TABLE attendance_events (id INTEGER PRIMARY KEY, employee_number TEXT, kind TEXT, occurred_at INTEGER)',
+          );
           await db.execute('''
             CREATE TABLE employees (
               id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -21,6 +21,9 @@ void main() {
           version: 5,
           onCreate: (db, version) async {
             await db.execute(
+              'CREATE TABLE attendance_events (id INTEGER PRIMARY KEY, employee_number TEXT, kind TEXT, occurred_at INTEGER)',
+            );
+            await db.execute(
               'CREATE TABLE employees (id INTEGER PRIMARY KEY, number TEXT NOT NULL, name TEXT NOT NULL)',
             );
           },

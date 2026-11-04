@@ -12,7 +12,7 @@ export class HealthService {
   private readonly http = inject(HttpClient);
 
   check(): Observable<HealthResponse> {
-    return this.http.get<unknown>('/health').pipe(
+    return this.http.get<unknown>('/api/health').pipe(
       timeout({ first: 12000 }),
       map((response): HealthResponse => {
         if (

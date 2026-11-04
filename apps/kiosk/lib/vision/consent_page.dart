@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'consent_store.dart';
 
 class ConsentPage extends StatefulWidget {
-  const ConsentPage({super.key, required this.store});
+  const ConsentPage({super.key, required this.store, this.onOpenFaceCheck});
 
   final ConsentStore store;
+  final void Function(String employeeNumber)? onOpenFaceCheck;
 
   @override
   State<ConsentPage> createState() => _ConsentPageState();
@@ -208,6 +209,18 @@ class _ConsentPageState extends State<ConsentPage> {
                                 : 'Registrar folio firmado',
                           ),
                         ),
+                        if (item.active && widget.onOpenFaceCheck != null) ...[
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: _saving || _loading
+                                ? null
+                                : () => widget.onOpenFaceCheck!(
+                                    item.employeeNumber,
+                                  ),
+                            icon: const Icon(Icons.face_outlined),
+                            label: const Text('Comprobar encuadre facial'),
+                          ),
+                        ],
                       ],
                     ),
                   ),

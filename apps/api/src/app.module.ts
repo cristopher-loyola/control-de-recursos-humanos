@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { resolve } from 'node:path';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
+import { AccountsController } from './accounts/accounts.controller.js';
+import { AuditController } from './audit/audit.controller.js';
+import { AuthModule } from './auth/auth.module.js';
+import { DatabaseModule } from './database/database.module.js';
+import { EmployeesController } from './employees/employees.controller.js';
 import { validateEnvironment } from './environment.js';
 import { HealthModule } from './health/health.module.js';
+import { OrganizationController } from './organization/organization.controller.js';
 
 @Module({
   imports: [
@@ -14,9 +18,15 @@ import { HealthModule } from './health/health.module.js';
       envFilePath: resolve(process.cwd(), '../../.env'),
       validate: validateEnvironment,
     }),
+    DatabaseModule,
+    AuthModule,
     HealthModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [
+    OrganizationController,
+    AccountsController,
+    EmployeesController,
+    AuditController,
+  ],
 })
 export class AppModule {}

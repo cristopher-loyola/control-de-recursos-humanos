@@ -6,6 +6,7 @@ import 'package:kiosk/auth/admin_auth.dart';
 import 'package:kiosk/backup/backup_service.dart';
 import 'package:kiosk/database/local_database.dart';
 import 'package:kiosk/employees/employee_store.dart';
+import 'package:kiosk/vision/face_capture_panel.dart';
 
 class MemoryAuth extends AdminAuth {
   MemoryAuth({bool configured = true})
@@ -70,7 +71,7 @@ class MemoryEmployees extends EmployeeStore {
 }
 
 class MemoryAttendance extends AttendanceStore {
-  MemoryAttendance() : super(LocalDatabase());
+  MemoryAttendance() : super(LocalDatabase(), authorizeRecord: () {});
   @override
   Future<List<AttendanceEvent>> forDay(DateTime day) async => [];
 }
@@ -106,7 +107,11 @@ void main() {
       final auth = MemoryAuth();
       await tester.pumpWidget(app(auth));
       await tester.pumpAndSettle();
+      expect(find.byType(FaceCapturePanel), findsOneWidget);
       expect(find.text('Guardar empleado'), findsNothing);
+      expect(find.text('Registrar entrada'), findsNothing);
+      expect(find.text('Registrar salida'), findsNothing);
+      expect(find.byType(DropdownButton<String>), findsNothing);
       await tester.tap(find.text('Administrar'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField).at(0), 'admin');
