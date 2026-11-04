@@ -307,4 +307,28 @@ void main() {
       );
     },
   );
+
+  test('Una toma borrosa no tumba la identificación, pero sí cuenta', () {
+    List<double> axis(int i) => List.generate(128, (j) => j == i ? 1.0 : 0.0);
+    List<double> blend(double same) => FaceMatching.normalize(
+      List.generate(
+        128,
+        (j) => j == 0
+            ? same
+            : j == 1
+            ? 1 - same
+            : 0.0,
+      ),
+    );
+    final enrolled = [axis(0)];
+    final good = blend(0.9);
+    final blurry = axis(1);
+    final score = FaceMatching.score([good, good, blurry], enrolled);
+    expect(score, greaterThan(FaceMatching.threshold));
+    expect(score, lessThan(FaceMatching.cosine(good, axis(0))));
+    expect(
+      FaceMatching.score([blurry, blurry, good], enrolled),
+      lessThan(FaceMatching.threshold),
+    );
+  });
 }
