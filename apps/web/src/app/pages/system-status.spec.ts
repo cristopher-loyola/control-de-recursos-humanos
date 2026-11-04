@@ -2,20 +2,20 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { App } from './app';
+import { SystemStatus } from './system-status';
 
 describe('Estado de conexión del panel', () => {
-  let fixture: ComponentFixture<App>;
+  let fixture: ComponentFixture<SystemStatus>;
   let http: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [App],
+      imports: [SystemStatus],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
 
     http = TestBed.inject(HttpTestingController);
-    fixture = TestBed.createComponent(App);
+    fixture = TestBed.createComponent(SystemStatus);
     fixture.detectChanges();
   });
 
@@ -31,18 +31,17 @@ describe('Estado de conexión del panel', () => {
     expect(page().textContent).toContain('Comprobando conexión');
     expect(page().querySelector('button')?.disabled).toBe(true);
 
-    const request = http.expectOne('/health');
+    const request = http.expectOne('/api/health');
     expect(request.request.method).toBe('GET');
     request.flush({ status: 'ok', database: 'up' });
     fixture.detectChanges();
 
-    expect(page().querySelector('h1')?.textContent).toContain('Control de Recursos Humanos');
     expect(page().textContent).toContain('Sistema disponible');
     expect(page().querySelector('button')?.disabled).toBe(false);
   });
 
   it('informa cuando el servidor responde que la base de datos está caída', () => {
-    http.expectOne('/health').flush(
+    http.expectOne('/api/health').flush(
       { status: 'error', database: 'unavailable' },
       { status: 503, statusText: 'Service Unavailable' },
     );
@@ -53,7 +52,7 @@ describe('Estado de conexión del panel', () => {
   });
 
   it('gestiona un fallo de red y permite reintentar', () => {
-    http.expectOne('/health').error(new ProgressEvent('error'));
+    http.expectOne('/api/health').error(new ProgressEvent('error'));
     fixture.detectChanges();
 
     expect(page().textContent).toContain('No se pudo verificar la conexión');
@@ -61,7 +60,7 @@ describe('Estado de conexión del panel', () => {
   });
 
   it('no informa disponibilidad cuando el servidor devuelve contenido inesperado', () => {
-    http.expectOne('/health').flush({ status: 'ok' });
+    http.expectOne('/api/health').flush({ status: 'ok' });
     fixture.detectChanges();
 
     expect(page().textContent).toContain('No se pudo verificar la conexión');
@@ -69,14 +68,14 @@ describe('Estado de conexión del panel', () => {
   });
 
   it('recupera el estado disponible al reintentar después de un error', () => {
-    http.expectOne('/health').flush('Error', { status: 500, statusText: 'Server Error' });
+    http.expectOne('/api/health').flush('Error', { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
     page().querySelector('button')!.click();
     fixture.detectChanges();
     expect(page().querySelector('button')?.disabled).toBe(true);
 
-    http.expectOne('/health').flush({ status: 'ok', database: 'up' });
+    http.expectOne('/api/health').flush({ status: 'ok', database: 'up' });
     fixture.detectChanges();
     expect(page().textContent).toContain('Sistema disponible');
   });

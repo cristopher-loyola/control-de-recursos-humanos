@@ -27,7 +27,10 @@ export function validateEnvironment(config: Record<string, unknown>) {
     throw new Error('API_PORT debe ser un entero entre 1 y 65535.');
   }
 
-  const webOrigin = parseUrl(requiredString(config, 'WEB_ORIGIN'), 'WEB_ORIGIN');
+  const webOrigin = parseUrl(
+    requiredString(config, 'WEB_ORIGIN'),
+    'WEB_ORIGIN',
+  );
   if (
     !['http:', 'https:'].includes(webOrigin.protocol) ||
     webOrigin.username ||
@@ -36,7 +39,9 @@ export function validateEnvironment(config: Record<string, unknown>) {
     webOrigin.search ||
     webOrigin.hash
   ) {
-    throw new Error('WEB_ORIGIN debe ser un origen HTTP o HTTPS sin ruta ni credenciales.');
+    throw new Error(
+      'WEB_ORIGIN debe ser un origen HTTP o HTTPS sin ruta ni credenciales.',
+    );
   }
 
   const databaseUrl = requiredString(config, 'DATABASE_URL');
@@ -46,7 +51,17 @@ export function validateEnvironment(config: Record<string, unknown>) {
     !database.hostname ||
     database.pathname.length < 2
   ) {
-    throw new Error('DATABASE_URL debe indicar un servidor y una base de datos PostgreSQL.');
+    throw new Error(
+      'DATABASE_URL debe indicar un servidor y una base de datos PostgreSQL.',
+    );
+  }
+
+  const totpKey = requiredString(config, 'TOTP_ENCRYPTION_KEY');
+  if (
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(totpKey) ||
+    Buffer.from(totpKey, 'base64').length !== 32
+  ) {
+    throw new Error('TOTP_ENCRYPTION_KEY debe contener 32 bytes en base64.');
   }
 
   return {
@@ -55,5 +70,6 @@ export function validateEnvironment(config: Record<string, unknown>) {
     API_PORT: port,
     WEB_ORIGIN: webOrigin.origin,
     DATABASE_URL: databaseUrl,
+    TOTP_ENCRYPTION_KEY: totpKey,
   };
 }

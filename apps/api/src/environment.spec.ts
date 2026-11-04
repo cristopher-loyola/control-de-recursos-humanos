@@ -6,6 +6,7 @@ const validEnvironment = {
   API_PORT: '3000',
   WEB_ORIGIN: 'http://localhost:4200/',
   DATABASE_URL: 'postgresql://localhost:5432/test_db',
+  TOTP_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
 };
 
 describe('Validación del entorno', () => {
@@ -17,14 +18,17 @@ describe('Validación del entorno', () => {
     });
   });
 
-  it.each(['NODE_ENV', 'API_PORT', 'WEB_ORIGIN', 'DATABASE_URL'])(
-    'rechaza la ausencia de %s',
-    (key) => {
-      expect(() =>
-        validateEnvironment({ ...validEnvironment, [key]: undefined }),
-      ).toThrow(key);
-    },
-  );
+  it.each([
+    'NODE_ENV',
+    'API_PORT',
+    'WEB_ORIGIN',
+    'DATABASE_URL',
+    'TOTP_ENCRYPTION_KEY',
+  ])('rechaza la ausencia de %s', (key) => {
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, [key]: undefined }),
+    ).toThrow(key);
+  });
 
   it.each(['0', '65536', '3000.5', 'abc'])(
     'rechaza el puerto inválido %s',
@@ -61,6 +65,15 @@ describe('Validación del entorno', () => {
       } catch (error) {
         expect((error as Error).message).not.toContain(databaseUrl);
       }
+    },
+  );
+
+  it.each([Buffer.alloc(16).toString('base64'), 'no es base64!'])(
+    'rechaza una llave de doble factor inválida',
+    (key) => {
+      expect(() =>
+        validateEnvironment({ ...validEnvironment, TOTP_ENCRYPTION_KEY: key }),
+      ).toThrow('TOTP_ENCRYPTION_KEY');
     },
   );
 });

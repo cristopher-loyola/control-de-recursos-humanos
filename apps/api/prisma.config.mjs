@@ -12,7 +12,8 @@ export default defineConfig({
   migrations: {
     path: 'prisma/migrations',
   },
+  // Las migraciones usan el dueño de las tablas; la API usa DATABASE_URL, sujeta a RLS.
   datasource: {
-    url: env('DATABASE_URL'),
+    url: env('DATABASE_OWNER_URL'),
   },
 });

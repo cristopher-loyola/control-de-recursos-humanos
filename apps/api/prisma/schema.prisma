@@ -48,6 +48,11 @@ enum AuditActorType {
   SYSTEM
 }
 
+enum SessionStage {
+  MFA_PENDING
+  ACTIVE
+}
+
 model Company {
   id        String   @id @default(uuid()) @db.Uuid
   name      String   @db.VarChar(160)
@@ -62,6 +67,7 @@ model Company {
   positions             Position[]
   employees             Employee[]
   accounts              Account[]
+  sessions              Session[]
   roles                 Role[]
   accountRoles          AccountRole[]
   rolePermissions       RolePermission[]
@@ -166,19 +172,27 @@ model Employee {
 }
 
 model Account {
-  id             String        @id @default(uuid()) @db.Uuid
-  companyId      String        @map("company_id") @db.Uuid
-  employeeId     String?       @map("employee_id") @db.Uuid
-  email          String        @db.VarChar(254)
-  passwordHash   String        @map("password_hash") @db.Text
-  status         AccountStatus @default(ACTIVE)
-  disabledAt     DateTime?     @map("disabled_at") @db.Timestamptz(6)
-  disabledReason String?       @map("disabled_reason") @db.Text
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String        @id @default(uuid()) @db.Uuid
+  companyId        String        @map("company_id") @db.Uuid
+  employeeId       String?       @map("employee_id") @db.Uuid
+  email            String        @db.VarChar(254)
+  passwordHash     String        @map("password_hash") @db.Text
+  status           AccountStatus @default(ACTIVE)
+  disabledAt       DateTime?     @map("disabled_at") @db.Timestamptz(6)
+  disabledReason   String?       @map("disabled_reason") @db.Text
+  // Secreto TOTP cifrado con AES-256-GCM; la llave vive fuera de la base de datos.
+  totpSecret       Bytes?        @map("totp_secret") @db.ByteA
+  totpEnabledAt    DateTime?     @map("totp_enabled_at") @db.Timestamptz(6)
+  totpLastStep     BigInt?       @map("totp_last_step")
+  failedLoginCount Int           @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?     @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt      DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   company                   Company                @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   employee                  Employee?              @relation("EmployeeAccount", fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  sessions                  Session[]
   roles                     AccountRole[]
   terminations              Employee[]             @relation("EmploymentTerminationActor")
   recordedBiometricConsents BiometricConsent[]
@@ -189,6 +203,26 @@ model Account {
   @@unique([companyId, email])
   @@unique([companyId, employeeId])
   @@map("accounts")
+}
+
+// Solo se guarda el hash del token; la sesión no sirve fuera de su empresa.
+model Session {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  accountId      String       @map("account_id") @db.Uuid
+  tokenHash      String       @unique @map("token_hash") @db.Char(64)
+  stage          SessionStage
+  mfaFailedCount Int          @default(0) @map("mfa_failed_count")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt     DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt      DateTime     @map("expires_at") @db.Timestamptz(6)
+  revokedAt      DateTime?    @map("revoked_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  account Account @relation(fields: [companyId, accountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([companyId, accountId])
+  @@map("sessions")
 }
 
 model Role {
