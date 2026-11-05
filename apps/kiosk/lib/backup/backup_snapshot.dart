@@ -15,6 +15,8 @@ class BackupSnapshot {
     this.consentRecords,
     this.departments,
     this.holidays,
+    this.payrollPolicy,
+    this.payrollClosures,
   );
   static const maxBytes = 20 * 1024 * 1024;
   final DateTime createdAt;
@@ -25,6 +27,10 @@ class BackupSnapshot {
   final List<Map<String, Object?>> departments;
   final List<Map<String, Object?>> holidays;
 
+  /// Cero o una fila con las reglas de la pre-nómina.
+  final List<Map<String, Object?>> payrollPolicy;
+  final List<Map<String, Object?>> payrollClosures;
+
   factory BackupSnapshot.fromRows({
     required DateTime createdAt,
     required List<Map<String, Object?>> employees,
@@ -33,14 +39,18 @@ class BackupSnapshot {
     List<Map<String, Object?>> consentRecords = const [],
     List<Map<String, Object?>> departments = const [],
     List<Map<String, Object?>> holidays = const [],
+    List<Map<String, Object?>> payrollPolicy = const [],
+    List<Map<String, Object?>> payrollClosures = const [],
   }) => BackupSnapshot.decode(
     utf8.encode(
       jsonEncode({
         'format': 'control-recursos-humanos',
-        'version': 7,
+        'version': 8,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'departments': departments,
         'holidays': holidays,
+        'payrollPolicy': payrollPolicy,
+        'payrollClosures': payrollClosures,
         'employees': employees,
         'attendance': events,
         'attendanceReviews': reviews,
@@ -63,7 +73,7 @@ class BackupSnapshot {
     }
     if (raw is! Map<String, dynamic> ||
         raw['format'] != 'control-recursos-humanos' ||
-        ![1, 2, 3, 4, 5, 6, 7].contains(raw['version'])) {
+        ![1, 2, 3, 4, 5, 6, 7, 8].contains(raw['version'])) {
       throw const InvalidBackup(
         'Este archivo no corresponde a una versión de respaldo compatible.',
       );
@@ -79,6 +89,8 @@ class BackupSnapshot {
     final consentRows = version >= 3 ? raw['consentRecords'] : <Object?>[];
     final departmentRows = version >= 5 ? raw['departments'] : <Object?>[];
     final holidayRows = version >= 7 ? raw['holidays'] : <Object?>[];
+    final policyRows = version >= 8 ? raw['payrollPolicy'] : <Object?>[];
+    final closureRows = version >= 8 ? raw['payrollClosures'] : <Object?>[];
     if (createdAt == null ||
         !createdAt.isUtc ||
         employeeRows is! List ||
@@ -86,7 +98,10 @@ class BackupSnapshot {
         reviewRows is! List ||
         consentRows is! List ||
         departmentRows is! List ||
-        holidayRows is! List) {
+        holidayRows is! List ||
+        policyRows is! List ||
+        policyRows.length > 1 ||
+        closureRows is! List) {
       throw const InvalidBackup('El respaldo está incompleto.');
     }
     final employees = <Map<String, Object?>>[];
@@ -114,6 +129,7 @@ class BackupSnapshot {
       final exit = row['exit_minutes'];
       final tolerance = row['tolerance_minutes'];
       final workDays = version >= 6 ? row['work_days'] : 31;
+      final departmentWage = version >= 8 ? row['daily_wage_cents'] : null;
       if (!_validId(id) ||
           !departmentIds.add(id as int) ||
           !_validText(name, 80) ||
@@ -131,7 +147,8 @@ class BackupSnapshot {
           tolerance > 240 ||
           workDays is! int ||
           workDays < 1 ||
-          workDays > 127) {
+          workDays > 127 ||
+          !_validWage(departmentWage)) {
         throw const InvalidBackup(
           'El respaldo contiene departamentos inválidos o repetidos.',
         );
@@ -144,6 +161,7 @@ class BackupSnapshot {
           'exit_minutes': exit,
           'tolerance_minutes': tolerance,
           'work_days': workDays,
+          'daily_wage_cents': departmentWage,
         }),
       );
     }
@@ -156,6 +174,10 @@ class BackupSnapshot {
       final name = row['name'];
       final departmentId = row['department_id'];
       final registeredAt = version >= 6 ? row['registered_at'] : null;
+      final employeeWage = version >= 8 ? row['daily_wage_cents'] : null;
+      if (!_validWage(employeeWage)) {
+        throw const InvalidBackup('El respaldo contiene un salario inválido.');
+      }
       if (registeredAt != null &&
           (registeredAt is! int ||
               registeredAt < 0 ||
@@ -185,6 +207,7 @@ class BackupSnapshot {
           'name': name,
           'department_id': departmentId,
           'registered_at': registeredAt,
+          'daily_wage_cents': employeeWage,
         }),
       );
     }
@@ -362,6 +385,87 @@ class BackupSnapshot {
         }),
       );
     }
+    final policies = <Map<String, Object?>>[];
+    for (final row in policyRows) {
+      if (row is! Map<String, dynamic> ||
+          row['id'] != 1 ||
+          !const [
+            'weekly',
+            'semimonthly',
+            'monthly',
+          ].contains(row['period_kind']) ||
+          row['week_start'] is! int ||
+          (row['week_start'] as int) < 1 ||
+          (row['week_start'] as int) > 7 ||
+          row['paid_days'] is! num ||
+          (row['paid_days'] as num) <= 0 ||
+          (row['paid_days'] as num) > 31 ||
+          row['absence_days'] is! num ||
+          (row['absence_days'] as num) < 0 ||
+          (row['absence_days'] as num) > 7 ||
+          row['lates_per_absence'] is! int ||
+          (row['lates_per_absence'] as int) < 0 ||
+          (row['lates_per_absence'] as int) > 31) {
+        throw const InvalidBackup(
+          'El respaldo contiene reglas de pre-nómina inválidas.',
+        );
+      }
+      policies.add(
+        Map<String, Object?>.unmodifiable({
+          'id': 1,
+          'period_kind': row['period_kind'],
+          'week_start': row['week_start'],
+          'paid_days': row['paid_days'],
+          'absence_days': row['absence_days'],
+          'lates_per_absence': row['lates_per_absence'],
+        }),
+      );
+    }
+    final closures = <Map<String, Object?>>[];
+    final closureIds = <int>{};
+    final dayPattern = RegExp(r'^\d{4}-[01]\d-[0-3]\d$');
+    for (final row in closureRows) {
+      if (row is! Map<String, dynamic>) {
+        throw const InvalidBackup('El respaldo contiene un cierre inválido.');
+      }
+      final id = row['id'];
+      final start = row['period_start'];
+      final end = row['period_end'];
+      final action = row['action'];
+      final actor = row['actor'];
+      final reason = row['reason'];
+      final time = row['occurred_at'];
+      final summary = row['summary'];
+      if (!_validId(id) ||
+          !closureIds.add(id as int) ||
+          start is! String ||
+          !dayPattern.hasMatch(start) ||
+          end is! String ||
+          !dayPattern.hasMatch(end) ||
+          (action != 'closed' && action != 'reopened') ||
+          !_validText(actor, 100) ||
+          (actor as String).trim().length < 3 ||
+          (reason != null && !_validText(reason, 500)) ||
+          time is! int ||
+          time < 0 ||
+          time > 8640000000000000 ||
+          (action == 'closed' && !_validJson(summary))) {
+        throw const InvalidBackup('El respaldo contiene un cierre inválido.');
+      }
+      closures.add(
+        Map<String, Object?>.unmodifiable({
+          'id': id,
+          'period_start': start,
+          'period_end': end,
+          'action': action,
+          'actor': actor,
+          'reason': reason,
+          'occurred_at': time,
+          'summary': action == 'closed' ? summary : null,
+        }),
+      );
+    }
+    closures.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     holidays.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     departments.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     employees.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
@@ -388,11 +492,24 @@ class BackupSnapshot {
       List.unmodifiable(consents),
       List.unmodifiable(departments),
       List.unmodifiable(holidays),
+      List.unmodifiable(policies),
+      List.unmodifiable(closures),
     );
   }
 
   static bool _validId(Object? value) =>
       value is int && value > 0 && value < 9223372036854775807;
+  static bool _validWage(Object? value) =>
+      value == null || value is int && value >= 0 && value <= 100000000;
+  static bool _validJson(Object? value) {
+    if (value is! String || value.length > 5 * 1024 * 1024) return false;
+    try {
+      return jsonDecode(value) is Map;
+    } on FormatException {
+      return false;
+    }
+  }
+
   static bool _validText(Object? value, int max) =>
       value is String &&
       value.trim().isNotEmpty &&
@@ -404,10 +521,12 @@ class BackupSnapshot {
       utf8.encode(
         jsonEncode({
           'format': 'control-recursos-humanos',
-          'version': 7,
+          'version': 8,
           'createdAt': createdAt.toUtc().toIso8601String(),
           'departments': departments,
           'holidays': holidays,
+          'payrollPolicy': payrollPolicy,
+          'payrollClosures': payrollClosures,
           'employees': employees,
           'attendance': events,
           'attendanceReviews': reviews,

@@ -1,5 +1,6 @@
 import '../audit/audit_store.dart';
 import '../database/local_database.dart';
+import '../payroll/payroll_store.dart' show isPayrollClosed;
 
 enum ReviewDecision {
   approved('approved', 'Aprobada'),
@@ -132,13 +133,22 @@ class AttendanceReviewStore {
       authorize();
       final events = await txn.query(
         'attendance_events',
-        columns: ['id'],
+        columns: ['id', 'occurred_at'],
         where: 'id = ?',
         whereArgs: [eventId],
         limit: 1,
       );
       if (events.isEmpty) {
         throw const ReviewRuleError('La checada ya no está disponible.');
+      }
+      final occurredAt = DateTime.fromMillisecondsSinceEpoch(
+        events.single['occurred_at'] as int,
+        isUtc: true,
+      );
+      if (await isPayrollClosed(txn, occurredAt)) {
+        throw const ReviewRuleError(
+          'La pre-nómina de ese día ya está cerrada. Pide al administrador que la reabra.',
+        );
       }
       final previous = await txn.query(
         'attendance_reviews',

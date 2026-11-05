@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter/services.dart';
+
 import '../admin/admin_shell.dart';
+import '../payroll/payroll.dart';
 import '../departments/department_store.dart';
 import '../theme/app_theme.dart';
 import 'employee_store.dart';
@@ -177,6 +180,23 @@ class _EmployeesPageState extends State<EmployeesPage> {
     }
   }
 
+  Future<void> _changeWage(Employee employee) async {
+    final result = await showDialog<({int? cents})>(
+      context: context,
+      builder: (_) => _WageDialog(employee: employee),
+    );
+    if (result == null || result.cents == employee.dailyWageCents) return;
+    setState(() => _saving = true);
+    try {
+      await widget.store.setDailyWage(employee.number, result.cents);
+      await _load();
+    } catch (_) {
+      if (mounted) setState(() => _message = 'No se pudo guardar el salario.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   List<Employee> get _visible {
     final query = _search.text.trim().toLowerCase();
     if (query.isEmpty) return _employees;
@@ -294,6 +314,11 @@ class _EmployeesPageState extends State<EmployeesPage> {
                               ? const TextStyle(color: AppColors.danger)
                               : null,
                         ),
+                      if (employee.effectiveWageCents != null)
+                        TextSpan(
+                          text:
+                              '${formatMoney(employee.effectiveWageCents!)} diarios · ',
+                        ),
                       TextSpan(
                         text: employee.hasFace
                             ? 'Rostro registrado'
@@ -307,6 +332,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 ),
               ],
             ),
+          ),
+          TextButton(
+            onPressed: _saving || _loading ? null : () => _changeWage(employee),
+            child: const Text('Salario'),
           ),
           if (_departments.isNotEmpty)
             TextButton(
@@ -418,6 +447,75 @@ class _EmployeesPageState extends State<EmployeesPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Empleados')),
       body: SafeArea(child: body),
+    );
+  }
+}
+
+/// Salario propio del empleado; vacío vuelve al de su departamento.
+class _WageDialog extends StatefulWidget {
+  const _WageDialog({required this.employee});
+  final Employee employee;
+
+  @override
+  State<_WageDialog> createState() => _WageDialogState();
+}
+
+class _WageDialogState extends State<_WageDialog> {
+  late final _wage = TextEditingController(
+    text: widget.employee.dailyWageCents == null
+        ? ''
+        : (widget.employee.dailyWageCents! / 100).toStringAsFixed(2),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _wage.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final text = _wage.text.trim();
+    final cents = parseMoney(text);
+    if (text.isNotEmpty && cents == null) {
+      setState(() => _error = 'Escribe el salario como 350 o 350.50.');
+      return;
+    }
+    Navigator.of(context).pop((cents: cents));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final department = widget.employee.departmentWageCents;
+    return AlertDialog(
+      title: Text('Salario de ${widget.employee.name}'),
+      content: SizedBox(
+        width: 400,
+        child: TextField(
+          controller: _wage,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
+          ],
+          onSubmitted: (_) => _save(),
+          decoration: InputDecoration(
+            labelText: 'Salario diario',
+            prefixText: '\$ ',
+            errorText: _error,
+            helperText: department == null
+                ? 'Vacío: su departamento no tiene salario capturado.'
+                : 'Vacío: usa el de su departamento (${formatMoney(department)}).',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Guardar')),
+      ],
     );
   }
 }

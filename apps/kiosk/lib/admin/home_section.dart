@@ -1,10 +1,13 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../departments/schedule.dart';
+import '../reports/attendance_export.dart';
 import '../reports/attendance_report.dart';
 import '../reports/report_store.dart';
 import '../theme/app_theme.dart';
 import 'admin_shell.dart';
+import 'dashboard_widgets.dart';
 
 const _months = [
   'enero',
@@ -38,22 +41,16 @@ String _time(DateTime value) {
 String _capitalize(String text) =>
     text.isEmpty ? text : '${text[0].toUpperCase()}${text.substring(1)}';
 
-/// Colores de un estado de asistencia: fuerte para el dato, tinte para el fondo.
-typedef _Tone = ({Color strong, Color tint});
-const _Tone _onTime = (strong: AppColors.onTime, tint: AppColors.onTimeTint);
-const _Tone _late = (strong: AppColors.late, tint: AppColors.lateTint);
-const _Tone _absent = (strong: AppColors.absent, tint: AppColors.absentTint);
-const _Tone _info = (strong: AppColors.info, tint: AppColors.infoTint);
-const _Tone _neutral = (strong: AppColors.muted, tint: AppColors.selected);
-
 /// Tablero de asistencia por día, semana o mes, con filtro por departamento.
 class HomeSection extends StatefulWidget {
   const HomeSection({
     super.key,
     required this.reports,
+    this.organizationName,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
   final ReportStore reports;
+  final String? organizationName;
   final DateTime Function() _clock;
 
   @override
@@ -68,6 +65,7 @@ class _HomeSectionState extends State<HomeSection> {
   int? _department;
   ReportData? _data;
   bool _loading = true;
+  bool _exporting = false;
   String? _error;
 
   @override
@@ -110,6 +108,57 @@ class _HomeSectionState extends State<HomeSection> {
   void _setDepartment(int? department) {
     setState(() => _department = department);
     _load();
+  }
+
+  Future<void> _export() async {
+    final data = _data;
+    if (data == null || _exporting) return;
+    setState(() => _exporting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final range = periodRange(_period, _anchor);
+      final start = range.start;
+      final stamp =
+          '${start.year}-${start.month.toString().padLeft(2, '0')}${_period == ReportPeriod.month ? '' : '-${start.day.toString().padLeft(2, '0')}'}';
+      final kind = switch (_period) {
+        ReportPeriod.day => 'dia',
+        ReportPeriod.week => 'semana',
+        ReportPeriod.month => 'mes',
+      };
+      final bytes = buildAttendanceWorkbook(
+        data: data,
+        periodLabel: _period == ReportPeriod.week
+            ? 'Semana del $_label'
+            : _label,
+        departmentLabel: _departmentLabel,
+        generatedAt: widget._clock(),
+        organizationName: widget.organizationName,
+      );
+      final saved = await FilePicker.saveFile(
+        fileName: 'asistencia-$kind-$stamp.xlsx',
+        bytes: bytes,
+        mimeType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        dialogTitle: 'Guardar reporte de asistencia',
+      );
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            saved == null
+                ? 'Exportación cancelada.'
+                : 'Reporte guardado con ${data.summaries.length} empleados.',
+          ),
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo generar el archivo de Excel.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   String get _label {
@@ -229,7 +278,7 @@ class _HomeSectionState extends State<HomeSection> {
     final navigation = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _RoundIcon(
+        RoundIcon(
           icon: Icons.chevron_left,
           tooltip: 'Anterior',
           onTap: () => _step(-1),
@@ -244,7 +293,7 @@ class _HomeSectionState extends State<HomeSection> {
           ),
         ),
         const SizedBox(width: 8),
-        _RoundIcon(
+        RoundIcon(
           icon: Icons.chevron_right,
           tooltip: 'Siguiente',
           onTap: _atPresent ? null : () => _step(1),
@@ -302,7 +351,34 @@ class _HomeSectionState extends State<HomeSection> {
       runSpacing: 12,
       crossAxisAlignment: WrapCrossAlignment.center,
       alignment: WrapAlignment.spaceBetween,
-      children: [periods, navigation, filter],
+      children: [
+        periods,
+        navigation,
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            filter,
+            SizedBox(
+              height: 44,
+              child: FilledButton.icon(
+                onPressed: _data == null || _exporting ? null : _export,
+                icon: _exporting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.file_download_outlined, size: 20),
+                label: const Text('Exportar a Excel'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -316,14 +392,14 @@ class _HomeSectionState extends State<HomeSection> {
     final shell = AdminShell.maybeOf(context);
     final isDay = _period == ReportPeriod.day;
     final cards = [
-      _KpiCard(
-        tone: _onTime,
+      KpiCard(
+        tone: toneOnTime,
         icon: Icons.check_circle_outline,
         label: 'A tiempo',
         value: '${sum((s) => s.onTime)}',
       ),
-      _KpiCard(
-        tone: _late,
+      KpiCard(
+        tone: toneLate,
         icon: Icons.schedule,
         label: 'Retardos',
         value: '${sum((s) => s.late)}',
@@ -331,22 +407,22 @@ class _HomeSectionState extends State<HomeSection> {
             ? null
             : '${formatDuration(sum((s) => s.lateMinutes))} en total',
       ),
-      _KpiCard(
-        tone: _absent,
+      KpiCard(
+        tone: toneAbsent,
         icon: Icons.person_off_outlined,
         label: isDay ? 'No llegaron' : 'Faltas',
         value: '${sum((s) => s.absent)}',
       ),
-      _KpiCard(
-        tone: _neutral,
+      KpiCard(
+        tone: toneNeutral,
         icon: Icons.insights_outlined,
         label: 'Asistencia',
         value: rate == null ? '—' : '${(rate * 100).round()}%',
         progress: rate,
         caption: workDays == 0 ? null : '$attended de $workDays',
       ),
-      _KpiCard(
-        tone: _info,
+      KpiCard(
+        tone: toneInfo,
         icon: Icons.fact_check_outlined,
         label: 'Por revisar',
         value: '${data.pendingReviews}',
@@ -388,14 +464,14 @@ class _HomeSectionState extends State<HomeSection> {
     final noSchedule = data.summaries.where((s) => !s.hasSchedule).toList();
     final columns = [
       _StatusList(
-        tone: _onTime,
+        tone: toneOnTime,
         title: 'A tiempo',
         count: onTime.length,
         empty: 'Nadie todavía.',
         rows: [
           for (final (s, d) in onTime)
             _PersonRow(
-              tone: _onTime,
+              tone: toneOnTime,
               name: s.employee.name,
               department: s.departmentName,
               detail: _time(d.entryAt!),
@@ -403,14 +479,14 @@ class _HomeSectionState extends State<HomeSection> {
         ],
       ),
       _StatusList(
-        tone: _late,
+        tone: toneLate,
         title: 'Llegaron tarde',
         count: late.length,
         empty: 'Sin retardos.',
         rows: [
           for (final (s, d) in late)
             _PersonRow(
-              tone: _late,
+              tone: toneLate,
               name: s.employee.name,
               department: s.departmentName,
               detail: _time(d.entryAt!),
@@ -419,14 +495,14 @@ class _HomeSectionState extends State<HomeSection> {
         ],
       ),
       _StatusList(
-        tone: _absent,
+        tone: toneAbsent,
         title: 'No llegaron',
         count: absent.length,
         empty: pending.isEmpty ? 'Llegaron todos.' : 'Ninguna falta por ahora.',
         rows: [
           for (final (s, _) in absent)
             _PersonRow(
-              tone: _absent,
+              tone: toneAbsent,
               name: s.employee.name,
               department: s.departmentName,
               badge: 'Falta',
@@ -435,7 +511,7 @@ class _HomeSectionState extends State<HomeSection> {
             const _Subheading('Aún en tolerancia'),
             for (final (s, _) in pending)
               _PersonRow(
-                tone: _neutral,
+                tone: toneNeutral,
                 name: s.employee.name,
                 department: s.departmentName,
                 detail: 'Por llegar',
@@ -445,7 +521,7 @@ class _HomeSectionState extends State<HomeSection> {
             const _Subheading('Sin departamento'),
             for (final s in noSchedule)
               _PersonRow(
-                tone: _neutral,
+                tone: toneNeutral,
                 name: s.employee.name,
                 detail: 'Sin horario',
               ),
@@ -487,11 +563,11 @@ class _HomeSectionState extends State<HomeSection> {
         final byAbsent = b.absent.compareTo(a.absent);
         return byAbsent != 0 ? byAbsent : b.late.compareTo(a.late);
       });
-    return _Panel(
+    return Panel(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final showMinutes = constraints.maxWidth >= 720;
-          Widget numberCell(String value, {_Tone? tone}) => SizedBox(
+          Widget numberCell(String value, {Tone? tone}) => SizedBox(
             width: 76,
             child: Align(
               alignment: Alignment.centerRight,
@@ -502,7 +578,7 @@ class _HomeSectionState extends State<HomeSection> {
                         fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     )
-                  : _Badge(text: value, tone: tone),
+                  : StatusBadge(text: value, tone: tone),
             ),
           );
           return Column(
@@ -562,17 +638,17 @@ class _HomeSectionState extends State<HomeSection> {
                     children: [
                       Expanded(
                         flex: 4,
-                        child: _Identity(
+                        child: PersonIdentity(
                           name: rows[i].employee.name,
                           department:
                               rows[i].departmentName ?? 'Sin departamento',
                           tone: rows[i].absent > 0
-                              ? _absent
+                              ? toneAbsent
                               : rows[i].late > 0
-                              ? _late
+                              ? toneLate
                               : rows[i].attended > 0
-                              ? _onTime
-                              : _neutral,
+                              ? toneOnTime
+                              : toneNeutral,
                         ),
                       ),
                       Expanded(
@@ -590,7 +666,7 @@ class _HomeSectionState extends State<HomeSection> {
                       if (rows[i].hasSchedule) ...[
                         numberCell(
                           '${rows[i].late}',
-                          tone: rows[i].late > 0 ? _late : null,
+                          tone: rows[i].late > 0 ? toneLate : null,
                         ),
                         if (showMinutes)
                           numberCell(
@@ -600,7 +676,7 @@ class _HomeSectionState extends State<HomeSection> {
                           ),
                         numberCell(
                           '${rows[i].absent}',
-                          tone: rows[i].absent > 0 ? _absent : null,
+                          tone: rows[i].absent > 0 ? toneAbsent : null,
                         ),
                       ] else
                         SizedBox(width: showMinutes ? 228 : 152),
@@ -717,169 +793,6 @@ class _PeriodTab extends StatelessWidget {
   );
 }
 
-class _RoundIcon extends StatelessWidget {
-  const _RoundIcon({required this.icon, required this.tooltip, this.onTap});
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: Material(
-      color: AppColors.surface,
-      shape: const CircleBorder(side: BorderSide(color: AppColors.line)),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 40,
-          height: 40,
-          child: Icon(
-            icon,
-            size: 22,
-            color: onTap == null ? AppColors.line : AppColors.ink,
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _Panel extends StatelessWidget {
-  const _Panel({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      border: Border.all(color: AppColors.line),
-      borderRadius: BorderRadius.circular(10),
-    ),
-    child: child,
-  );
-}
-
-class _KpiCard extends StatelessWidget {
-  const _KpiCard({
-    required this.tone,
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.caption,
-    this.progress,
-    this.onTap,
-  });
-  final _Tone tone;
-  final IconData icon;
-  final String label;
-  final String value;
-  final String? caption;
-  final double? progress;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final zero = value == '0' || value == '—';
-    return Material(
-      color: AppColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: AppColors.line),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: tone.tint,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(icon, size: 18, color: tone.strong),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      label,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodyMedium?.copyWith(color: AppColors.muted),
-                    ),
-                  ),
-                  if (onTap != null)
-                    const Icon(
-                      Icons.arrow_forward,
-                      size: 18,
-                      color: AppColors.info,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.6, end: 1),
-                duration: const Duration(milliseconds: 260),
-                key: ValueKey(value),
-                builder: (context, t, child) =>
-                    Opacity(opacity: t, child: child),
-                child: Text(
-                  value,
-                  style: text.headlineMedium?.copyWith(
-                    fontSize: 32,
-                    color: zero ? AppColors.ink : tone.strong,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-              if (progress != null) ...[
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: progress!.clamp(0, 1)),
-                    duration: const Duration(milliseconds: 500),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, v, _) => LinearProgressIndicator(
-                      value: v,
-                      minHeight: 6,
-                      backgroundColor: AppColors.selected,
-                      color: v >= 0.9
-                          ? AppColors.onTime
-                          : v >= 0.7
-                          ? AppColors.late
-                          : AppColors.absent,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 6),
-              Text(
-                caption ?? ' ',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodySmall?.copyWith(
-                  color: onTap != null ? AppColors.info : AppColors.muted,
-                  fontWeight: onTap != null ? FontWeight.w600 : null,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _StatusList extends StatelessWidget {
   const _StatusList({
     required this.tone,
@@ -888,14 +801,14 @@ class _StatusList extends StatelessWidget {
     required this.empty,
     required this.rows,
   });
-  final _Tone tone;
+  final Tone tone;
   final String title;
   final int count;
   final String empty;
   final List<Widget> rows;
 
   @override
-  Widget build(BuildContext context) => _Panel(
+  Widget build(BuildContext context) => Panel(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -910,7 +823,7 @@ class _StatusList extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              _Badge(text: '$count', tone: tone),
+              StatusBadge(text: '$count', tone: tone),
             ],
           ),
         ),
@@ -930,59 +843,6 @@ class _StatusList extends StatelessWidget {
   );
 }
 
-class _Identity extends StatelessWidget {
-  const _Identity({required this.name, this.department, required this.tone});
-  final String name;
-  final String? department;
-  final _Tone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final initials = name
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .take(2)
-        .map((part) => part[0].toUpperCase())
-        .join();
-    return Row(
-      children: [
-        CircleAvatar(
-          radius: 17,
-          backgroundColor: tone.tint,
-          child: Text(
-            initials,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: tone.strong,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              if (department != null)
-                Text(
-                  department!,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _PersonRow extends StatelessWidget {
   const _PersonRow({
     required this.tone,
@@ -991,7 +851,7 @@ class _PersonRow extends StatelessWidget {
     this.detail,
     this.badge,
   });
-  final _Tone tone;
+  final Tone tone;
   final String name;
   final String? department;
   final String? detail;
@@ -1003,7 +863,7 @@ class _PersonRow extends StatelessWidget {
     child: Row(
       children: [
         Expanded(
-          child: _Identity(name: name, department: department, tone: tone),
+          child: PersonIdentity(name: name, department: department, tone: tone),
         ),
         if (detail != null) ...[
           const SizedBox(width: 8),
@@ -1017,38 +877,13 @@ class _PersonRow extends StatelessWidget {
         ],
         if (badge != null) ...[
           const SizedBox(width: 8),
-          _Badge(text: badge!, tone: tone),
+          StatusBadge(text: badge!, tone: tone),
         ],
       ],
     ),
   );
 }
 
-class _Badge extends StatelessWidget {
-  const _Badge({required this.text, required this.tone});
-  final String text;
-  final _Tone tone;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-    decoration: BoxDecoration(
-      color: tone.tint,
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(
-      text,
-      style: TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-        color: tone.strong,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      ),
-    ),
-  );
-}
-
-/// Barra con la proporción de días a tiempo, tarde y faltas del periodo.
 class _AttendanceBar extends StatelessWidget {
   const _AttendanceBar({required this.summary});
   final EmployeeSummary summary;

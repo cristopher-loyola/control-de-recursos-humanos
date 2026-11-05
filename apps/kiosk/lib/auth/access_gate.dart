@@ -8,6 +8,8 @@ import '../departments/department_store.dart';
 import '../departments/departments_page.dart';
 import '../holidays/holiday_store.dart';
 import '../holidays/holidays_page.dart';
+import '../payroll/payroll_page.dart';
+import '../payroll/payroll_store.dart';
 import '../reports/report_store.dart';
 
 import '../attendance/attendance_page.dart';
@@ -218,6 +220,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                         label: 'Inicio',
                         icon: Icons.home_outlined,
                         builder: (_) => HomeSection(
+                          organizationName: auth.organizationName,
                           reports: ReportStore(
                             widget.attendance.database,
                             authorize: auth.requireStaff,
@@ -273,6 +276,20 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                           manual: (_) => AttendancePage(
                             employees: widget.employees,
                             attendance: widget.attendance,
+                          ),
+                        ),
+                      ),
+                      AdminSection(
+                        label: 'Pre-nómina',
+                        icon: Icons.payments_outlined,
+                        builder: (_) => PayrollPage(
+                          organizationName: auth.organizationName,
+                          canReopen: auth.isAdministrator,
+                          store: PayrollStore(
+                            widget.attendance.database,
+                            authorize: auth.requireStaff,
+                            authorizeReopen: auth.requireAdmin,
+                            actor: () => auth.accountName,
                           ),
                         ),
                       ),

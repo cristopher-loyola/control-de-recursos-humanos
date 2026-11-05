@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../database/local_database.dart';
+import '../payroll/payroll.dart' show formatMoney;
 
 enum AuditAction {
   faceEnrolled('face_enrolled', 'Rostro registrado'),
@@ -32,6 +33,13 @@ enum AuditAction {
   consentRecorded('consent_recorded', 'Consentimiento documentado'),
   consentRevoked('consent_revoked', 'Consentimiento revocado'),
   attendanceReviewed('attendance_reviewed', 'Checada manual revisada'),
+  employeeWageChanged('employee_wage_changed', 'Salario de empleado cambiado'),
+  payrollPolicyChanged(
+    'payroll_policy_changed',
+    'Reglas de pre-nómina cambiadas',
+  ),
+  payrollClosed('payroll_closed', 'Periodo de pre-nómina cerrado'),
+  payrollReopened('payroll_reopened', 'Periodo de pre-nómina reabierto'),
   backupExported('backup_exported', 'Respaldo exportado'),
   backupRestored('backup_restored', 'Respaldo restaurado');
 
@@ -92,7 +100,18 @@ class AuditEntry {
         return 'Empleado ${details['employeeNumber']}: ${details['before'] ?? 'sin departamento'} → ${details['after']}';
       case AuditAction.departmentCreated:
       case AuditAction.departmentUpdated:
-        return '${details['name']}: ${details['entry']} a ${details['exit']}, tolerancia ${details['tolerance']} min';
+        final wage = details['dailyWage'];
+        return '${details['name']}: ${details['entry']} a ${details['exit']}, tolerancia ${details['tolerance']} min${wage is int ? ', ${formatMoney(wage)} diarios' : ''}';
+      case AuditAction.employeeWageChanged:
+        final wage = details['dailyWage'];
+        return 'Empleado ${details['employeeNumber']}: ${wage is int ? '${formatMoney(wage)} diarios' : 'usa el salario de su departamento'}';
+      case AuditAction.payrollPolicyChanged:
+        return '${details['period']} · ${details['paidDays']} días pagados · falta = ${details['absenceDays']} días · ${details['latesPerAbsence'] == 0 ? 'retardos sin descuento' : '${details['latesPerAbsence']} retardos = 1 falta'}';
+      case AuditAction.payrollClosed:
+        final total = details['total'];
+        return '${details['start']} al ${details['end']} · ${details['employees']} empleados${total is int ? ' · ${formatMoney(total)}' : ''}';
+      case AuditAction.payrollReopened:
+        return '${details['start']} al ${details['end']} · ${details['reason']}';
       case AuditAction.holidayAdded:
       case AuditAction.holidayRemoved:
         return '${details['day']} · ${details['name']} · ${details['scope'] ?? 'Toda la empresa'}';

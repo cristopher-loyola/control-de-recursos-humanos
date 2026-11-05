@@ -13,6 +13,7 @@ class Department {
     required this.toleranceMinutes,
     this.workDays = WorkDays.mondayToFriday,
     this.employeeCount = 0,
+    this.dailyWageCents,
   });
   final int id;
   final String name;
@@ -23,6 +24,9 @@ class Department {
   /// Días laborables como bits: lunes = 1 … domingo = 64.
   final int workDays;
   final int employeeCount;
+
+  /// Salario diario en centavos para quien no tenga uno propio.
+  final int? dailyWageCents;
 
   DepartmentSchedule get schedule => DepartmentSchedule(
     departmentName: name,
@@ -39,6 +43,7 @@ class Department {
     toleranceMinutes: row['tolerance_minutes'] as int,
     workDays: (row['work_days'] as int?) ?? WorkDays.mondayToFriday,
     employeeCount: (row['employee_count'] as int?) ?? 0,
+    dailyWageCents: row['daily_wage_cents'] as int?,
   );
 }
 
@@ -69,6 +74,7 @@ class DepartmentStore {
     required int exitMinutes,
     required int toleranceMinutes,
     int workDays = WorkDays.mondayToFriday,
+    int? dailyWageCents,
   }) async {
     authorize();
     final normalized = name.trim();
@@ -90,12 +96,19 @@ class DepartmentStore {
     if (workDays < 1 || workDays > 127) {
       throw const DepartmentRuleError('Elige al menos un día laborable.');
     }
+    if (dailyWageCents != null &&
+        (dailyWageCents < 0 || dailyWageCents > 100000000)) {
+      throw const DepartmentRuleError(
+        'El salario diario debe estar entre \$0 y \$1,000,000.',
+      );
+    }
     final values = {
       'work_days': workDays,
       'name': normalized,
       'entry_minutes': entryMinutes,
       'exit_minutes': exitMinutes,
       'tolerance_minutes': toleranceMinutes,
+      'daily_wage_cents': dailyWageCents,
     };
     try {
       final db = await database.open();
@@ -126,6 +139,7 @@ class DepartmentStore {
             'exit': formatMinutes(exitMinutes),
             'tolerance': toleranceMinutes,
             'days': WorkDays.describe(workDays),
+            'dailyWage': dailyWageCents,
           },
         );
       });
