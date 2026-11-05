@@ -114,6 +114,8 @@ void main() {
       await db.execute('ALTER TABLE employees_v9 RENAME TO employees');
       await db.execute('DROP TABLE holidays');
       await db.execute('DROP TABLE departments');
+      await db.execute('DROP TABLE payroll_policy');
+      await db.execute('DROP TABLE payroll_closures');
       await db.execute('PRAGMA foreign_keys = ON');
       for (final column in [
         'capture_method',

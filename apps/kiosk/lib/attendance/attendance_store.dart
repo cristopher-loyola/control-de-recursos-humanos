@@ -13,6 +13,15 @@ enum AttendanceKind {
   final String label;
 }
 
+/// Una entrada sin salida deja de estar abierta pasado este tiempo: queda
+/// como jornada incompleta para RH y el empleado puede volver a entrar.
+const openEntryLimit = Duration(hours: 18);
+
+AttendanceKind _expected(String? lastKind, DateTime? lastAt, DateTime now) =>
+    lastKind == 'entry' && now.difference(lastAt!) < openEntryLimit
+    ? AttendanceKind.exit
+    : AttendanceKind.entry;
+
 class AttendanceRuleError implements Exception {
   const AttendanceRuleError(this.message);
   final String message;
@@ -53,10 +62,8 @@ class AttendanceStore {
 
   Future<AttendanceKind?> nextFor(String number) async {
     final last = await lastFor(number);
-    final next = last?.kind == AttendanceKind.entry
-        ? AttendanceKind.exit
-        : AttendanceKind.entry;
     final now = _clock().toLocal();
+    final next = _expected(last?.kind.value, last?.occurredAt, now);
     final start = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
     final end = DateTime(
       now.year,
@@ -154,9 +161,16 @@ class AttendanceStore {
         limit: 1,
       );
       final last = previous.isEmpty ? null : previous.single;
-      final expected = last?['kind'] == 'entry'
-          ? AttendanceKind.exit
-          : AttendanceKind.entry;
+      final expected = _expected(
+        last?['kind'] as String?,
+        last == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(
+                last['occurred_at'] as int,
+                isUtc: true,
+              ),
+        _clock(),
+      );
       if (kind != expected) {
         throw AttendanceRuleError(
           expected == AttendanceKind.entry

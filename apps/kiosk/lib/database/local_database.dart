@@ -24,7 +24,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 13,
+        version: 14,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await _createDepartments(db);
@@ -35,7 +35,8 @@ class LocalDatabase {
               number TEXT NOT NULL UNIQUE CHECK(length(trim(number)) BETWEEN 1 AND 30),
               name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
               department_id INTEGER REFERENCES departments(id),
-              registered_at INTEGER
+              registered_at INTEGER,
+              daily_wage_cents INTEGER CHECK(daily_wage_cents IS NULL OR daily_wage_cents BETWEEN 0 AND 100000000)
             )
           ''');
           await _createAttendance(db);
@@ -46,6 +47,7 @@ class LocalDatabase {
           await _createAttendanceReviews(db);
           await _createConsentRecords(db);
           await _createFaceTemplates(db);
+          await _createPayroll(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -110,6 +112,18 @@ class LocalDatabase {
           }
           if (oldVersion < 13) {
             await _createHolidays(db);
+          }
+          if (oldVersion < 14) {
+            // Antes de la v11 la tabla se crea arriba ya con la columna.
+            if (oldVersion >= 11) {
+              await db.execute(
+                'ALTER TABLE departments ADD COLUMN daily_wage_cents INTEGER CHECK(daily_wage_cents IS NULL OR daily_wage_cents BETWEEN 0 AND 100000000)',
+              );
+            }
+            await db.execute(
+              'ALTER TABLE employees ADD COLUMN daily_wage_cents INTEGER CHECK(daily_wage_cents IS NULL OR daily_wage_cents BETWEEN 0 AND 100000000)',
+            );
+            await _createPayroll(db);
           }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
@@ -259,6 +273,7 @@ class LocalDatabase {
         exit_minutes INTEGER NOT NULL CHECK(exit_minutes BETWEEN 0 AND 1439),
         tolerance_minutes INTEGER NOT NULL DEFAULT 10 CHECK(tolerance_minutes BETWEEN 0 AND 240),
         work_days INTEGER NOT NULL DEFAULT 31 CHECK(work_days BETWEEN 1 AND 127),
+        daily_wage_cents INTEGER CHECK(daily_wage_cents IS NULL OR daily_wage_cents BETWEEN 0 AND 100000000),
         CHECK(entry_minutes <> exit_minutes)
       )
     ''');
@@ -315,6 +330,44 @@ class LocalDatabase {
     await db.execute(
       'CREATE UNIQUE INDEX holidays_day_scope ON holidays(day, COALESCE(department_id, 0))',
     );
+  }
+
+  /// Reglas de la pre-nómina (una sola fila) y el historial de cierres. Un
+  /// cierre no se edita ni se borra: reabrir agrega otra fila.
+  static Future<void> _createPayroll(Database db) async {
+    await db.execute('''
+      CREATE TABLE payroll_policy (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        period_kind TEXT NOT NULL CHECK(period_kind IN ('weekly', 'semimonthly', 'monthly')),
+        week_start INTEGER NOT NULL DEFAULT 1 CHECK(week_start BETWEEN 1 AND 7),
+        paid_days REAL NOT NULL CHECK(paid_days > 0 AND paid_days <= 31),
+        absence_days REAL NOT NULL CHECK(absence_days >= 0 AND absence_days <= 7),
+        lates_per_absence INTEGER NOT NULL DEFAULT 0 CHECK(lates_per_absence BETWEEN 0 AND 31)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE payroll_closures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN ('closed', 'reopened')),
+        actor TEXT NOT NULL CHECK(length(trim(actor)) BETWEEN 3 AND 100),
+        reason TEXT,
+        occurred_at INTEGER NOT NULL,
+        summary TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX payroll_closures_period ON payroll_closures(period_start, id)',
+    );
+    await db.execute('''
+      CREATE TRIGGER payroll_closures_no_update BEFORE UPDATE ON payroll_closures
+      BEGIN SELECT RAISE(ABORT, 'Payroll closures cannot be edited'); END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER payroll_closures_no_delete BEFORE DELETE ON payroll_closures
+      BEGIN SELECT RAISE(ABORT, 'Payroll closures cannot be deleted'); END
+    ''');
   }
 
   static Future<void> _createFaceTemplates(Database db) async {

@@ -11,12 +11,20 @@ class Employee {
     this.hasFace = false,
     this.departmentId,
     this.departmentName,
+    this.dailyWageCents,
+    this.departmentWageCents,
   });
   final String number;
   final String name;
   final bool hasFace;
   final int? departmentId;
   final String? departmentName;
+
+  /// Salario diario propio en centavos; null usa el del departamento.
+  final int? dailyWageCents;
+  final int? departmentWageCents;
+
+  int? get effectiveWageCents => dailyWageCents ?? departmentWageCents;
 }
 
 class DuplicateEmployee implements Exception {}
@@ -34,7 +42,7 @@ class EmployeeStore {
 
   Future<List<Employee>> list() async {
     final rows = await (await _database.open()).rawQuery('''
-      SELECT e.*, d.name AS department_name,
+      SELECT e.*, d.name AS department_name, d.daily_wage_cents AS department_wage_cents,
              EXISTS(SELECT 1 FROM face_templates t WHERE t.employee_number = e.number) AS has_face
       FROM employees e LEFT JOIN departments d ON d.id = e.department_id
       ORDER BY e.name COLLATE NOCASE, e.number
@@ -47,6 +55,8 @@ class EmployeeStore {
             hasFace: row['has_face'] == 1,
             departmentId: row['department_id'] as int?,
             departmentName: row['department_name'] as String?,
+            dailyWageCents: row['daily_wage_cents'] as int?,
+            departmentWageCents: row['department_wage_cents'] as int?,
           ),
         )
         .toList();
@@ -153,6 +163,33 @@ class EmployeeStore {
           'before': rows.single['before'],
           'after': rows.single['after'],
         },
+      );
+    });
+  }
+
+  /// Salario diario propio en centavos; null vuelve al del departamento.
+  Future<void> setDailyWage(String number, int? cents) async {
+    authorize();
+    if (cents != null && (cents < 0 || cents > 100000000)) {
+      throw ArgumentError(
+        'El salario diario debe estar entre \$0 y \$1,000,000.',
+      );
+    }
+    final db = await _database.open();
+    await db.transaction((txn) async {
+      authorize();
+      final changed = await txn.update(
+        'employees',
+        {'daily_wage_cents': cents},
+        where: 'number = ?',
+        whereArgs: [number],
+      );
+      if (changed == 0) throw ArgumentError('El empleado ya no existe.');
+      await writeAudit(
+        txn,
+        action: AuditAction.employeeWageChanged,
+        actor: actor?.call() ?? 'Administrador',
+        details: {'employeeNumber': number, 'dailyWage': cents},
       );
     });
   }

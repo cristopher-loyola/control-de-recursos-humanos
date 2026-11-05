@@ -26,6 +26,8 @@ class BackupService {
         createdAt: DateTime.now(),
         departments: await txn.query('departments', orderBy: 'id'),
         holidays: await txn.query('holidays', orderBy: 'id'),
+        payrollPolicy: await txn.query('payroll_policy'),
+        payrollClosures: await txn.query('payroll_closures', orderBy: 'id'),
         employees: await txn.query('employees', orderBy: 'id'),
         events: await txn.query('attendance_events', orderBy: 'id'),
         reviews: await txn.query('attendance_reviews', orderBy: 'id'),
@@ -68,6 +70,17 @@ class BackupService {
           'Esta tablet tiene rostros registrados. La restauración está bloqueada para conservarlos.',
         );
       }
+      final closures = await txn.query(
+        'payroll_closures',
+        columns: ['id'],
+        limit: 1,
+      );
+      if (closures.isNotEmpty) {
+        throw const InvalidBackup(
+          'Esta tablet tiene periodos de pre-nómina cerrados. La restauración está bloqueada para conservarlos.',
+        );
+      }
+      await txn.delete('payroll_policy');
       await txn.delete('attendance_reviews');
       await txn.delete('consent_records');
       await txn.delete('attendance_events');
@@ -80,6 +93,12 @@ class BackupService {
       }
       for (final row in snapshot.holidays) {
         batch.insert('holidays', row);
+      }
+      for (final row in snapshot.payrollPolicy) {
+        batch.insert('payroll_policy', row);
+      }
+      for (final row in snapshot.payrollClosures) {
+        batch.insert('payroll_closures', row);
       }
       for (final row in snapshot.employees) {
         batch.insert('employees', row);

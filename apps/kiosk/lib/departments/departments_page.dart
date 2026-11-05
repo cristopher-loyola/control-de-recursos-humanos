@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter/services.dart';
+
 import '../admin/admin_shell.dart';
+import '../payroll/payroll.dart';
 import '../theme/app_theme.dart';
 import 'department_store.dart';
 import 'schedule.dart';
@@ -130,7 +133,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 Text(
-                  '${formatMinutes(department.entryMinutes)} a ${formatMinutes(department.exitMinutes)} · ${WorkDays.describe(department.workDays)} · tolerancia ${department.toleranceMinutes} min · $people',
+                  '${formatMinutes(department.entryMinutes)} a ${formatMinutes(department.exitMinutes)} · ${WorkDays.describe(department.workDays)} · tolerancia ${department.toleranceMinutes} min${department.dailyWageCents == null ? '' : ' · ${formatMoney(department.dailyWageCents!)} diarios'} · $people',
                   style: text.bodySmall,
                 ),
               ],
@@ -158,6 +161,11 @@ class _DepartmentDialog extends StatefulWidget {
 class _DepartmentDialogState extends State<_DepartmentDialog> {
   static const _tolerances = [0, 5, 10, 15, 20, 30, 45, 60];
   late final _name = TextEditingController(text: widget.department?.name);
+  late final _wage = TextEditingController(
+    text: widget.department?.dailyWageCents == null
+        ? ''
+        : (widget.department!.dailyWageCents! / 100).toStringAsFixed(2),
+  );
   late int _entry = widget.department?.entryMinutes ?? 8 * 60;
   late int _exit = widget.department?.exitMinutes ?? 17 * 60;
   late int _tolerance = widget.department?.toleranceMinutes ?? 10;
@@ -168,6 +176,7 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
   @override
   void dispose() {
     _name.dispose();
+    _wage.dispose();
     super.dispose();
   }
 
@@ -194,6 +203,11 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
   }
 
   Future<void> _save() async {
+    final wage = parseMoney(_wage.text);
+    if (_wage.text.trim().isNotEmpty && wage == null) {
+      setState(() => _error = 'Escribe el salario diario como 350 o 350.50.');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -206,6 +220,7 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
         exitMinutes: _exit,
         toleranceMinutes: _tolerance,
         workDays: _days,
+        dailyWageCents: wage,
       );
       if (mounted) Navigator.of(context).pop(true);
     } on DepartmentRuleError catch (error) {
@@ -228,6 +243,7 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
             ? 'Nuevo departamento'
             : 'Editar departamento',
       ),
+      scrollable: true,
       content: SizedBox(
         width: 420,
         child: Column(
@@ -298,23 +314,49 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
               ],
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              initialValue: _tolerances.contains(_tolerance) ? _tolerance : 10,
-              decoration: const InputDecoration(
-                labelText: 'Tolerancia para la entrada',
-              ),
-              items: [
-                for (final minutes in _tolerances)
-                  DropdownMenuItem(
-                    value: minutes,
-                    child: Text(
-                      minutes == 0 ? 'Sin tolerancia' : '$minutes minutos',
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    initialValue: _tolerances.contains(_tolerance)
+                        ? _tolerance
+                        : 10,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Tolerancia'),
+                    items: [
+                      for (final minutes in _tolerances)
+                        DropdownMenuItem(
+                          value: minutes,
+                          child: Text(
+                            minutes == 0 ? 'Sin tolerancia' : '$minutes min',
+                          ),
+                        ),
+                    ],
+                    onChanged: _saving
+                        ? null
+                        : (value) => setState(() => _tolerance = value ?? 10),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _wage,
+                    enabled: !_saving,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'Salario diario',
+                      hintText: 'Opcional',
+                      prefixText: '\$ ',
                     ),
                   ),
+                ),
               ],
-              onChanged: _saving
-                  ? null
-                  : (value) => setState(() => _tolerance = value ?? 10),
             ),
             if (_error != null)
               Padding(
