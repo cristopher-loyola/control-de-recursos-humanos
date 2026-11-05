@@ -12,6 +12,17 @@ abstract final class AppColors {
   static const accent = Color(0xFF2F5D46);
   static const accentPressed = Color(0xFF244A37);
   static const danger = Color(0xFFA8322A);
+
+  // Colores de estado: solo para datos (a tiempo, tarde, falta, revisar),
+  // siempre con su tinte claro de fondo, nunca como decoración.
+  static const onTime = Color(0xFF2E7D4F);
+  static const onTimeTint = Color(0xFFE6F2EA);
+  static const late = Color(0xFFB4690E);
+  static const lateTint = Color(0xFFFBEFDD);
+  static const absent = danger;
+  static const absentTint = Color(0xFFF8E5E2);
+  static const info = Color(0xFF3E5C8A);
+  static const infoTint = Color(0xFFE7EDF6);
 }
 
 ThemeData createAppTheme() {

@@ -130,7 +130,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 Text(
-                  '${formatMinutes(department.entryMinutes)} a ${formatMinutes(department.exitMinutes)} · tolerancia ${department.toleranceMinutes} min · $people',
+                  '${formatMinutes(department.entryMinutes)} a ${formatMinutes(department.exitMinutes)} · ${WorkDays.describe(department.workDays)} · tolerancia ${department.toleranceMinutes} min · $people',
                   style: text.bodySmall,
                 ),
               ],
@@ -161,6 +161,7 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
   late int _entry = widget.department?.entryMinutes ?? 8 * 60;
   late int _exit = widget.department?.exitMinutes ?? 17 * 60;
   late int _tolerance = widget.department?.toleranceMinutes ?? 10;
+  late int _days = widget.department?.workDays ?? WorkDays.mondayToFriday;
   bool _saving = false;
   String? _error;
 
@@ -204,6 +205,7 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
         entryMinutes: _entry,
         exitMinutes: _exit,
         toleranceMinutes: _tolerance,
+        workDays: _days,
       );
       if (mounted) Navigator.of(context).pop(true);
     } on DepartmentRuleError catch (error) {
@@ -273,6 +275,29 @@ class _DepartmentDialogState extends State<_DepartmentDialog> {
                 ),
               ),
             const SizedBox(height: 16),
+            Text(
+              'Días laborables',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                for (var i = 0; i < 7; i++) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  Expanded(
+                    child: _DayToggle(
+                      label: WorkDays.letters[i],
+                      tooltip: WorkDays.names[i],
+                      selected: _days & (1 << i) != 0,
+                      onTap: _saving
+                          ? null
+                          : () => setState(() => _days ^= 1 << i),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 16),
             DropdownButtonFormField<int>(
               initialValue: _tolerances.contains(_tolerance) ? _tolerance : 10,
               decoration: const InputDecoration(
@@ -335,6 +360,52 @@ class _TimeField extends StatelessWidget {
         formatMinutes(minutes),
         style: Theme.of(context).textTheme.titleMedium
             ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+      ),
+    ),
+  );
+}
+
+class _DayToggle extends StatelessWidget {
+  const _DayToggle({
+    required this.label,
+    required this.tooltip,
+    required this.selected,
+    this.onTap,
+  });
+  final String label;
+  final String tooltip;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: Semantics(
+      selected: selected,
+      button: true,
+      label: tooltip,
+      child: Material(
+        color: selected ? AppColors.ink : AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+          side: BorderSide(color: selected ? AppColors.ink : AppColors.line),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: onTap,
+          child: SizedBox(
+            height: 44,
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : AppColors.muted,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     ),
   );

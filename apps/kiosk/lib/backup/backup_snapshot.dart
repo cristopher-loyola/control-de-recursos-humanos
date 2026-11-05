@@ -34,7 +34,7 @@ class BackupSnapshot {
     utf8.encode(
       jsonEncode({
         'format': 'control-recursos-humanos',
-        'version': 5,
+        'version': 6,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'departments': departments,
         'employees': employees,
@@ -59,7 +59,7 @@ class BackupSnapshot {
     }
     if (raw is! Map<String, dynamic> ||
         raw['format'] != 'control-recursos-humanos' ||
-        ![1, 2, 3, 4, 5].contains(raw['version'])) {
+        ![1, 2, 3, 4, 5, 6].contains(raw['version'])) {
       throw const InvalidBackup(
         'Este archivo no corresponde a una versión de respaldo compatible.',
       );
@@ -107,6 +107,7 @@ class BackupSnapshot {
       final entry = row['entry_minutes'];
       final exit = row['exit_minutes'];
       final tolerance = row['tolerance_minutes'];
+      final workDays = version >= 6 ? row['work_days'] : 31;
       if (!_validId(id) ||
           !departmentIds.add(id as int) ||
           !_validText(name, 80) ||
@@ -121,7 +122,10 @@ class BackupSnapshot {
           entry == exit ||
           tolerance is! int ||
           tolerance < 0 ||
-          tolerance > 240) {
+          tolerance > 240 ||
+          workDays is! int ||
+          workDays < 1 ||
+          workDays > 127) {
         throw const InvalidBackup(
           'El respaldo contiene departamentos inválidos o repetidos.',
         );
@@ -133,6 +137,7 @@ class BackupSnapshot {
           'entry_minutes': entry,
           'exit_minutes': exit,
           'tolerance_minutes': tolerance,
+          'work_days': workDays,
         }),
       );
     }
@@ -144,6 +149,15 @@ class BackupSnapshot {
       final number = row['number'];
       final name = row['name'];
       final departmentId = row['department_id'];
+      final registeredAt = version >= 6 ? row['registered_at'] : null;
+      if (registeredAt != null &&
+          (registeredAt is! int ||
+              registeredAt < 0 ||
+              registeredAt > 8640000000000000)) {
+        throw const InvalidBackup(
+          'El respaldo contiene una fecha de alta inválida.',
+        );
+      }
       if (departmentId != null && !departmentIds.contains(departmentId)) {
         throw const InvalidBackup(
           'Hay empleados asociados a departamentos inexistentes.',
@@ -164,6 +178,7 @@ class BackupSnapshot {
           'number': number,
           'name': name,
           'department_id': departmentId,
+          'registered_at': registeredAt,
         }),
       );
     }
@@ -347,7 +362,7 @@ class BackupSnapshot {
       utf8.encode(
         jsonEncode({
           'format': 'control-recursos-humanos',
-          'version': 5,
+          'version': 6,
           'createdAt': createdAt.toUtc().toIso8601String(),
           'departments': departments,
           'employees': employees,

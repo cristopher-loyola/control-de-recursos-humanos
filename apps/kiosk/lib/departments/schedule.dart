@@ -12,6 +12,43 @@ class DepartmentSchedule {
   final int toleranceMinutes;
 }
 
+/// Días laborables guardados como bits (lunes = 1, martes = 2 … domingo = 64).
+abstract final class WorkDays {
+  static const mondayToFriday = 31;
+  static const mondayToSaturday = 63;
+  static const letters = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  static const names = [
+    'lunes',
+    'martes',
+    'miércoles',
+    'jueves',
+    'viernes',
+    'sábado',
+    'domingo',
+  ];
+
+  static bool includes(int days, DateTime date) =>
+      days & (1 << (date.weekday - 1)) != 0;
+
+  static String describe(int days) {
+    if (days == mondayToFriday) return 'lunes a viernes';
+    if (days == mondayToSaturday) return 'lunes a sábado';
+    if (days == 127) return 'todos los días';
+    return [
+      for (var i = 0; i < 7; i++)
+        if (days & (1 << i) != 0) letters[i],
+    ].join(' ');
+  }
+}
+
+/// Minutos de retraso respecto a la hora de entrada, o null si llegó a
+/// tiempo (antes de la hora o dentro de la tolerancia).
+int? lateMinutes(DepartmentSchedule schedule, DateTime localTime) {
+  final now = localTime.hour * 60 + localTime.minute;
+  final late = (now - schedule.entryMinutes) % 1440;
+  return late > schedule.toleranceMinutes && late < 720 ? late : null;
+}
+
 String formatMinutes(int minutes) =>
     '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
 
@@ -30,20 +67,19 @@ String? scheduleIssue({
   }
   final now = localTime.hour * 60 + localTime.minute;
   if (isEntry) {
-    final late = (now - schedule.entryMinutes) % 1440;
-    if (late > schedule.toleranceMinutes && late < 720) {
-      return 'Retardo de ${_duration(late)} (entrada ${formatMinutes(schedule.entryMinutes)}, ${schedule.departmentName}).';
-    }
-    return null;
+    final late = lateMinutes(schedule, localTime);
+    return late == null
+        ? null
+        : 'Retardo de ${formatDuration(late)} (entrada ${formatMinutes(schedule.entryMinutes)}, ${schedule.departmentName}).';
   }
   final early = (schedule.exitMinutes - now) % 1440;
   if (early > 0 && early < 720) {
-    return 'Salida anticipada por ${_duration(early)} (salida ${formatMinutes(schedule.exitMinutes)}, ${schedule.departmentName}).';
+    return 'Salida anticipada por ${formatDuration(early)} (salida ${formatMinutes(schedule.exitMinutes)}, ${schedule.departmentName}).';
   }
   return null;
 }
 
-String _duration(int minutes) {
+String formatDuration(int minutes) {
   if (minutes < 60) return '$minutes min';
   final hours = minutes ~/ 60;
   final rest = minutes % 60;

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
@@ -22,7 +24,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 11,
+        version: 12,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await _createDepartments(db);
@@ -31,7 +33,8 @@ class LocalDatabase {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               number TEXT NOT NULL UNIQUE CHECK(length(trim(number)) BETWEEN 1 AND 30),
               name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
-              department_id INTEGER REFERENCES departments(id)
+              department_id INTEGER REFERENCES departments(id),
+              registered_at INTEGER
             )
           ''');
           await _createAttendance(db);
@@ -92,6 +95,17 @@ class LocalDatabase {
                 'ALTER TABLE attendance_events ADD COLUMN schedule_note TEXT',
               );
             }
+          }
+          if (oldVersion == 11) {
+            await db.execute(
+              'ALTER TABLE departments ADD COLUMN work_days INTEGER NOT NULL DEFAULT 31 CHECK(work_days BETWEEN 1 AND 127)',
+            );
+          }
+          if (oldVersion < 12) {
+            await db.execute(
+              'ALTER TABLE employees ADD COLUMN registered_at INTEGER',
+            );
+            await _backfillRegistration(db);
           }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
@@ -240,9 +254,47 @@ class LocalDatabase {
         entry_minutes INTEGER NOT NULL CHECK(entry_minutes BETWEEN 0 AND 1439),
         exit_minutes INTEGER NOT NULL CHECK(exit_minutes BETWEEN 0 AND 1439),
         tolerance_minutes INTEGER NOT NULL DEFAULT 10 CHECK(tolerance_minutes BETWEEN 0 AND 240),
+        work_days INTEGER NOT NULL DEFAULT 31 CHECK(work_days BETWEEN 1 AND 127),
         CHECK(entry_minutes <> exit_minutes)
       )
     ''');
+  }
+
+  /// Fecha de alta de los empleados que ya existían, tomada de la bitácora.
+  /// Sin registro en la bitácora queda vacía y el reporte cuenta todo el periodo.
+  static Future<void> _backfillRegistration(Database db) async {
+    final tables = await db.query(
+      'sqlite_master',
+      where: "type = 'table' AND name = 'audit_entries'",
+    );
+    if (tables.isEmpty) return;
+    final rows = await db.query(
+      'audit_entries',
+      columns: ['occurred_at', 'details'],
+      where: 'action = ?',
+      whereArgs: ['employee_created'],
+      orderBy: 'id',
+    );
+    final first = <String, int>{};
+    for (final row in rows) {
+      try {
+        final details = jsonDecode(row['details'] as String);
+        final number = details is Map ? details['employeeNumber'] : null;
+        if (number is String) {
+          first.putIfAbsent(number, () => row['occurred_at'] as int);
+        }
+      } on FormatException {
+        // Registro ilegible: se omite.
+      }
+    }
+    for (final entry in first.entries) {
+      await db.update(
+        'employees',
+        {'registered_at': entry.value},
+        where: 'number = ? AND registered_at IS NULL',
+        whereArgs: [entry.key],
+      );
+    }
   }
 
   static Future<void> _createFaceTemplates(Database db) async {

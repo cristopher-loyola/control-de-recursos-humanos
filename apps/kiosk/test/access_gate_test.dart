@@ -129,7 +129,7 @@ void main() {
       );
       await tapFormButton(tester, 'Entrar');
       expect(find.text('Volver al checador'), findsOneWidget);
-      expect(find.text('Checadas por revisar'), findsOneWidget);
+      expect(find.text('Día'), findsOneWidget);
       await tester.tap(find.byTooltip('Empleados'));
       await tester.pumpAndSettle();
       expect(find.text('Guardar empleado'), findsOneWidget);

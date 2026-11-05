@@ -76,6 +76,7 @@ class EmployeeStore {
           'number': normalizedNumber,
           'name': normalizedName,
           'department_id': departmentId,
+          'registered_at': DateTime.now().toUtc().millisecondsSinceEpoch,
         }, conflictAlgorithm: ConflictAlgorithm.abort);
       });
     } on DatabaseException catch (error) {
@@ -106,6 +107,7 @@ class EmployeeStore {
         'number': number,
         'name': normalizedName,
         'department_id': departmentId,
+        'registered_at': DateTime.now().toUtc().millisecondsSinceEpoch,
       }, conflictAlgorithm: ConflictAlgorithm.abort);
       await writeAudit(
         txn,

@@ -11,6 +11,7 @@ class Department {
     required this.entryMinutes,
     required this.exitMinutes,
     required this.toleranceMinutes,
+    this.workDays = WorkDays.mondayToFriday,
     this.employeeCount = 0,
   });
   final int id;
@@ -18,6 +19,9 @@ class Department {
   final int entryMinutes;
   final int exitMinutes;
   final int toleranceMinutes;
+
+  /// Días laborables como bits: lunes = 1 … domingo = 64.
+  final int workDays;
   final int employeeCount;
 
   DepartmentSchedule get schedule => DepartmentSchedule(
@@ -33,6 +37,7 @@ class Department {
     entryMinutes: row['entry_minutes'] as int,
     exitMinutes: row['exit_minutes'] as int,
     toleranceMinutes: row['tolerance_minutes'] as int,
+    workDays: (row['work_days'] as int?) ?? WorkDays.mondayToFriday,
     employeeCount: (row['employee_count'] as int?) ?? 0,
   );
 }
@@ -63,6 +68,7 @@ class DepartmentStore {
     required int entryMinutes,
     required int exitMinutes,
     required int toleranceMinutes,
+    int workDays = WorkDays.mondayToFriday,
   }) async {
     authorize();
     final normalized = name.trim();
@@ -81,7 +87,11 @@ class DepartmentStore {
         'La tolerancia debe estar entre 0 y 240 minutos.',
       );
     }
+    if (workDays < 1 || workDays > 127) {
+      throw const DepartmentRuleError('Elige al menos un día laborable.');
+    }
     final values = {
+      'work_days': workDays,
       'name': normalized,
       'entry_minutes': entryMinutes,
       'exit_minutes': exitMinutes,
@@ -115,6 +125,7 @@ class DepartmentStore {
             'entry': formatMinutes(entryMinutes),
             'exit': formatMinutes(exitMinutes),
             'tolerance': toleranceMinutes,
+            'days': WorkDays.describe(workDays),
           },
         );
       });
