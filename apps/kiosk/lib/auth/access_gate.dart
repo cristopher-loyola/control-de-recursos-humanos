@@ -6,6 +6,7 @@ import '../admin/home_section.dart';
 import '../admin/settings_section.dart';
 import '../departments/department_store.dart';
 import '../departments/departments_page.dart';
+import '../reports/report_store.dart';
 
 import '../attendance/attendance_page.dart';
 import '../attendance/attendance_store.dart';
@@ -155,6 +156,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                   }
                   if (!auth.isAuthenticated) {
                     return FaceClockPage(
+                      organizationName: auth.organizationName,
                       faces: faces,
                       attendance: widget.attendance,
                       onOpenAdmin: () => Navigator.of(context).push(
@@ -214,14 +216,10 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                         label: 'Inicio',
                         icon: Icons.home_outlined,
                         builder: (_) => HomeSection(
-                          employees: widget.employees,
-                          attendance: widget.attendance,
-                          pendingReviews: () async {
-                            final today = await reviews.forDay(DateTime.now());
-                            return today
-                                .where((item) => item.decision == null)
-                                .length;
-                          },
+                          reports: ReportStore(
+                            widget.attendance.database,
+                            authorize: auth.requireStaff,
+                          ),
                         ),
                       ),
                       AdminSection(

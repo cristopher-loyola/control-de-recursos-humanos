@@ -8,6 +8,7 @@ import 'package:kiosk/backup/backup_service.dart';
 import 'package:kiosk/backup/backup_snapshot.dart';
 import 'package:kiosk/database/local_database.dart';
 import 'package:kiosk/departments/department_store.dart';
+import 'package:kiosk/reports/report_store.dart';
 import 'package:kiosk/employees/employee_store.dart';
 import 'package:kiosk/vision/consent_store.dart';
 import 'package:kiosk/vision/face_engine.dart';
@@ -423,4 +424,56 @@ void main() {
     final numbers = (await employees.list()).map((e) => e.number).toSet();
     expect(numbers, containsAll(['001', '002', '3', '4']));
   });
+
+  test(
+    'El tablero excluye checadas rechazadas y filtra por departamento',
+    () async {
+      final departments = DepartmentStore(database, authorize: authorize);
+      await departments.save(
+        name: 'Almacén',
+        entryMinutes: 8 * 60,
+        exitMinutes: 17 * 60,
+        toleranceMinutes: 10,
+      );
+      final almacen = (await departments.list()).single;
+      expect(almacen.workDays, 31);
+      await employees.setDepartment('001', almacen.id);
+      final db = await database.open();
+      await db.update('employees', {
+        'registered_at': DateTime(2026, 10, 1).toUtc().millisecondsSinceEpoch,
+      });
+      await attendance.record('001', AttendanceKind.entry);
+      final reports = ReportStore(
+        database,
+        authorize: authorize,
+        clock: () => DateTime(2026, 10, 31, 18),
+      );
+      // 31 de octubre de 2026 es sábado: día de descanso para lunes a viernes.
+      var data = await reports.load(
+        start: DateTime(2026, 10, 26),
+        end: DateTime(2026, 11, 2),
+      );
+      final ana = data.summaries.firstWhere((s) => s.employee.number == '001');
+      expect(ana.workDays, 5);
+      expect(ana.absent, 5);
+      expect(
+        data.pendingReviews,
+        1,
+        reason: 'La checada manual queda por revisar.',
+      );
+
+      data = await reports.load(
+        start: DateTime(2026, 10, 26),
+        end: DateTime(2026, 11, 2),
+        departmentId: almacen.id,
+      );
+      expect(data.summaries.map((s) => s.employee.number), ['001']);
+      data = await reports.load(
+        start: DateTime(2026, 10, 26),
+        end: DateTime(2026, 11, 2),
+        withoutDepartment: true,
+      );
+      expect(data.summaries.map((s) => s.employee.number), ['002']);
+    },
+  );
 }

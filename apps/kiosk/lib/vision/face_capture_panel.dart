@@ -16,7 +16,16 @@ class FaceCapturePanel extends StatefulWidget {
     this.beforeStart,
     this.guidedEnrollment = false,
     this.active = true,
+    this.fill = false,
+    this.highlight,
   });
+
+  /// Ocupa todo el espacio disponible con la imagen recortada al centro y el
+  /// estado encima. Lo usa el checador.
+  final bool fill;
+
+  /// Color del borde de la cámara en modo [fill] (por ejemplo, al reconocer).
+  final Color? highlight;
   final Future<void> Function(List<List<double>>) onSamples;
   final Future<void> Function()? beforeStart;
   final bool guidedEnrollment;
@@ -292,8 +301,99 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
     super.dispose();
   }
 
+  Widget _filled(BuildContext context) {
+    final camera = _controller;
+    final ready = camera != null && camera.value.isInitialized;
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final ratio = ready ? camera.value.aspectRatio : 4 / 3;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ColoredBox(color: Color(0xFF151513)),
+          if (ready)
+            FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: landscape ? ratio * 300 : 300 / ratio,
+                height: 300,
+                child: RotatedBox(
+                  quarterTurns: _halfTurn ? 2 : 0,
+                  child: CameraPreview(camera),
+                ),
+              ),
+            )
+          else
+            Center(
+              child: _failed
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.no_photography_outlined,
+                          color: Colors.white70,
+                          size: 40,
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white38),
+                          ),
+                          onPressed: () =>
+                              _operations = _operations.then((_) => _start()),
+                          child: const Text('Volver a intentar'),
+                        ),
+                      ],
+                    )
+                  : const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white70,
+                      ),
+                    ),
+            ),
+          if (ready)
+            IgnorePointer(
+              child: CustomPaint(painter: _FaceGuidePainter(shade: false)),
+            ),
+          IgnorePointer(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: widget.highlight ?? Colors.transparent,
+                  width: 4,
+                ),
+              ),
+            ),
+          ),
+          if (widget.active)
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 20,
+              child: Center(
+                child: Semantics(
+                  liveRegion: true,
+                  child: _StatusPill(text: _status, live: ready),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.fill) return _filled(context);
     final camera = _controller;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -332,7 +432,9 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
                           ),
                           if (widget.guidedEnrollment)
                             IgnorePointer(
-                              child: CustomPaint(painter: _FaceGuidePainter()),
+                              child: CustomPaint(
+                                painter: const _FaceGuidePainter(),
+                              ),
                             ),
                         ],
                       )
@@ -375,6 +477,11 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
 }
 
 class _FaceGuidePainter extends CustomPainter {
+  const _FaceGuidePainter({this.shade = true});
+
+  /// Oscurece lo que queda fuera del óvalo (registro de rostro).
+  final bool shade;
+
   @override
   void paint(Canvas canvas, Size size) {
     final oval = Rect.fromCenter(
@@ -382,20 +489,93 @@ class _FaceGuidePainter extends CustomPainter {
       width: size.height * 0.55,
       height: size.height * 0.82,
     );
-    final shade = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Offset.zero & size)
-      ..addOval(oval);
-    canvas.drawPath(shade, Paint()..color = Colors.black38);
+    if (shade) {
+      final outside = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(Offset.zero & size)
+        ..addOval(oval);
+      canvas.drawPath(outside, Paint()..color = Colors.black38);
+    }
     canvas.drawOval(
       oval,
       Paint()
-        ..color = Colors.white
+        ..color = shade ? Colors.white : Colors.white54
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
+        ..strokeWidth = shade ? 3 : 2,
     );
   }
 
   @override
-  bool shouldRepaint(_FaceGuidePainter oldDelegate) => false;
+  bool shouldRepaint(_FaceGuidePainter oldDelegate) =>
+      oldDelegate.shade != shade;
+}
+
+/// Estado sobre la imagen de la cámara, con un punto que late mientras escanea.
+class _StatusPill extends StatefulWidget {
+  const _StatusPill({required this.text, required this.live});
+  final String text;
+  final bool live;
+
+  @override
+  State<_StatusPill> createState() => _StatusPillState();
+}
+
+class _StatusPillState extends State<_StatusPill>
+    with SingleTickerProviderStateMixin {
+  late final _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.94),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FadeTransition(
+          opacity: widget.live
+              ? Tween(begin: 0.25, end: 1.0).animate(_pulse)
+              : const AlwaysStoppedAnimation(0.25),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            // Solo el mensaje nuevo: los cambios rápidos no se enciman.
+            layoutBuilder: (current, _) => current ?? const SizedBox.shrink(),
+            child: Text(
+              widget.text,
+              key: ValueKey(widget.text),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF1C1B19),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
