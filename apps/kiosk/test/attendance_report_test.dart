@@ -132,4 +132,53 @@ void main() {
     );
     expect(WorkDays.describe(WorkDays.mondayToSaturday), 'lunes a sábado');
   });
+
+  test('Festivos: sin checada no cuentan; si trabajó, sí cuenta', () {
+    final week = periodRange(ReportPeriod.week, monday);
+    final r = report(
+      start: week.start,
+      end: week.end,
+      now: DateTime(2026, 11, 8, 20),
+      entries: {
+        '2': [DateTime(2026, 11, 2, 8)],
+      },
+      employees: const [ana, luis],
+    );
+    expect(
+      r.first.absent,
+      5,
+      reason: 'Sin festivos, Ana falta toda la semana.',
+    );
+    final withHoliday = buildReport(
+      employees: const [ana, luis],
+      departments: const [production],
+      entries: {
+        '2': [DateTime(2026, 11, 2, 8)],
+      },
+      start: week.start,
+      end: week.end,
+      now: DateTime(2026, 11, 8, 20),
+      holidays: [
+        ReportHoliday(day: monday, name: 'Puente'),
+        ReportHoliday(
+          day: DateTime(2026, 11, 3),
+          name: 'Inventario',
+          departmentId: 9,
+        ),
+      ],
+    );
+    final anaSummary = withHoliday.firstWhere((s) => s.employee.number == '1');
+    expect(
+      anaSummary.workDays,
+      4,
+      reason: 'El lunes festivo no cuenta; el del otro departamento sí.',
+    );
+    expect(anaSummary.absent, 4);
+    final luisSummary = withHoliday.firstWhere((s) => s.employee.number == '2');
+    expect(
+      luisSummary.attended,
+      1,
+      reason: 'Trabajó en festivo y se registra.',
+    );
+  });
 }

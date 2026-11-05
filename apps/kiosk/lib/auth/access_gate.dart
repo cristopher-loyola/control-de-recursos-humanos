@@ -6,6 +6,8 @@ import '../admin/home_section.dart';
 import '../admin/settings_section.dart';
 import '../departments/department_store.dart';
 import '../departments/departments_page.dart';
+import '../holidays/holiday_store.dart';
+import '../holidays/holidays_page.dart';
 import '../reports/report_store.dart';
 
 import '../attendance/attendance_page.dart';
@@ -250,6 +252,18 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                         label: 'Departamentos',
                         icon: Icons.account_tree_outlined,
                         builder: (_) => DepartmentsPage(store: departments),
+                      ),
+                      AdminSection(
+                        label: 'Días festivos',
+                        icon: Icons.event_busy_outlined,
+                        builder: (_) => HolidaysPage(
+                          store: HolidayStore(
+                            widget.attendance.database,
+                            authorize: auth.requireStaff,
+                            actor: () => auth.accountName,
+                          ),
+                          departments: departments,
+                        ),
                       ),
                       AdminSection(
                         label: 'Asistencia',

@@ -27,6 +27,8 @@ enum AuditAction {
   ),
   departmentCreated('department_created', 'Departamento creado'),
   departmentUpdated('department_updated', 'Horario de departamento cambiado'),
+  holidayAdded('holiday_added', 'Día festivo agregado'),
+  holidayRemoved('holiday_removed', 'Día festivo eliminado'),
   consentRecorded('consent_recorded', 'Consentimiento documentado'),
   consentRevoked('consent_revoked', 'Consentimiento revocado'),
   attendanceReviewed('attendance_reviewed', 'Checada manual revisada'),
@@ -91,6 +93,9 @@ class AuditEntry {
       case AuditAction.departmentCreated:
       case AuditAction.departmentUpdated:
         return '${details['name']}: ${details['entry']} a ${details['exit']}, tolerancia ${details['tolerance']} min';
+      case AuditAction.holidayAdded:
+      case AuditAction.holidayRemoved:
+        return '${details['day']} · ${details['name']} · ${details['scope'] ?? 'Toda la empresa'}';
       case AuditAction.consentRecorded:
         return 'Se registró el folio del consentimiento de ${details['employeeNumber']}.';
       case AuditAction.consentRevoked:

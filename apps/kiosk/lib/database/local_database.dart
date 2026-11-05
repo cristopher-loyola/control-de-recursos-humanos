@@ -24,10 +24,11 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 12,
+        version: 13,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await _createDepartments(db);
+          await _createHolidays(db);
           await db.execute('''
             CREATE TABLE employees (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +107,9 @@ class LocalDatabase {
               'ALTER TABLE employees ADD COLUMN registered_at INTEGER',
             );
             await _backfillRegistration(db);
+          }
+          if (oldVersion < 13) {
+            await _createHolidays(db);
           }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
@@ -295,6 +299,22 @@ class LocalDatabase {
         whereArgs: [entry.key],
       );
     }
+  }
+
+  /// Días que no cuentan como laborables: festivos o descansos autorizados.
+  /// Sin departamento aplica a toda la empresa.
+  static Future<void> _createHolidays(Database db) async {
+    await db.execute('''
+      CREATE TABLE holidays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day TEXT NOT NULL CHECK(day GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]'),
+        name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 2 AND 80),
+        department_id INTEGER REFERENCES departments(id)
+      )
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX holidays_day_scope ON holidays(day, COALESCE(department_id, 0))',
+    );
   }
 
   static Future<void> _createFaceTemplates(Database db) async {

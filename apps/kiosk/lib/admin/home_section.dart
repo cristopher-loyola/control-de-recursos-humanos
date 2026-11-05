@@ -172,6 +172,10 @@ class _HomeSectionState extends State<HomeSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (data.holidays.isNotEmpty) ...[
+                    _holidayBanner(context, data.holidays),
+                    const SizedBox(height: 12),
+                  ],
                   _totals(context, data),
                   const SizedBox(height: 20),
                   AnimatedSwitcher(
@@ -607,6 +611,40 @@ class _HomeSectionState extends State<HomeSection> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _holidayBanner(BuildContext context, List<ReportHoliday> holidays) {
+    final names = [
+      for (final h in holidays)
+        _period == ReportPeriod.day
+            ? h.name
+            : '${h.name} (${h.day.day} de ${_months[h.day.month - 1]})',
+    ];
+    final scoped = holidays.any((h) => h.departmentId != null);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: AppColors.infoTint,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.event_available, size: 20, color: AppColors.info),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _period == ReportPeriod.day
+                  ? 'Día festivo: ${names.join(', ')}. No cuenta como falta${scoped ? ' para el departamento indicado' : ''}.'
+                  : 'Festivos en el periodo: ${names.join(' · ')}. No cuentan como falta.',
+            ),
+          ),
+          TextButton(
+            onPressed: () => AdminShell.maybeOf(context)?.show('Días festivos'),
+            child: const Text('Ver'),
+          ),
+        ],
       ),
     );
   }

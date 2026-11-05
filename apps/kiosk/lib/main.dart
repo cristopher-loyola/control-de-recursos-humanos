@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'attendance/attendance_store.dart';
 import 'audit/audit_store.dart';
@@ -26,6 +27,9 @@ class MyApp extends StatelessWidget {
     title: 'Control de Recursos Humanos',
     debugShowCheckedModeBanner: false,
     theme: createAppTheme(),
+    locale: const Locale('es', 'MX'),
+    supportedLocales: const [Locale('es', 'MX')],
+    localizationsDelegates: GlobalMaterialLocalizations.delegates,
     home: AccessGate(
       auth: auth,
       employees: EmployeeStore(
