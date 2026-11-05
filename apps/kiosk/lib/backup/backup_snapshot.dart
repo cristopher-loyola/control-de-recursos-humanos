@@ -14,6 +14,7 @@ class BackupSnapshot {
     this.reviews,
     this.consentRecords,
     this.departments,
+    this.holidays,
   );
   static const maxBytes = 20 * 1024 * 1024;
   final DateTime createdAt;
@@ -22,6 +23,7 @@ class BackupSnapshot {
   final List<Map<String, Object?>> reviews;
   final List<Map<String, Object?>> consentRecords;
   final List<Map<String, Object?>> departments;
+  final List<Map<String, Object?>> holidays;
 
   factory BackupSnapshot.fromRows({
     required DateTime createdAt,
@@ -30,13 +32,15 @@ class BackupSnapshot {
     List<Map<String, Object?>> reviews = const [],
     List<Map<String, Object?>> consentRecords = const [],
     List<Map<String, Object?>> departments = const [],
+    List<Map<String, Object?>> holidays = const [],
   }) => BackupSnapshot.decode(
     utf8.encode(
       jsonEncode({
         'format': 'control-recursos-humanos',
-        'version': 6,
+        'version': 7,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'departments': departments,
+        'holidays': holidays,
         'employees': employees,
         'attendance': events,
         'attendanceReviews': reviews,
@@ -59,7 +63,7 @@ class BackupSnapshot {
     }
     if (raw is! Map<String, dynamic> ||
         raw['format'] != 'control-recursos-humanos' ||
-        ![1, 2, 3, 4, 5, 6].contains(raw['version'])) {
+        ![1, 2, 3, 4, 5, 6, 7].contains(raw['version'])) {
       throw const InvalidBackup(
         'Este archivo no corresponde a una versión de respaldo compatible.',
       );
@@ -74,13 +78,15 @@ class BackupSnapshot {
     final version = raw['version'] as int;
     final consentRows = version >= 3 ? raw['consentRecords'] : <Object?>[];
     final departmentRows = version >= 5 ? raw['departments'] : <Object?>[];
+    final holidayRows = version >= 7 ? raw['holidays'] : <Object?>[];
     if (createdAt == null ||
         !createdAt.isUtc ||
         employeeRows is! List ||
         eventRows is! List ||
         reviewRows is! List ||
         consentRows is! List ||
-        departmentRows is! List) {
+        departmentRows is! List ||
+        holidayRows is! List) {
       throw const InvalidBackup('El respaldo está incompleto.');
     }
     final employees = <Map<String, Object?>>[];
@@ -322,6 +328,41 @@ class BackupSnapshot {
         }),
       );
     }
+    final holidays = <Map<String, Object?>>[];
+    final holidayIds = <int>{};
+    final holidayKeys = <String>{};
+    for (final row in holidayRows) {
+      if (row is! Map<String, dynamic>) {
+        throw const InvalidBackup(
+          'El respaldo contiene un día festivo inválido.',
+        );
+      }
+      final id = row['id'];
+      final day = row['day'];
+      final name = row['name'];
+      final departmentId = row['department_id'];
+      if (!_validId(id) ||
+          !holidayIds.add(id as int) ||
+          day is! String ||
+          !RegExp(r'^\d{4}-[01]\d-[0-3]\d$').hasMatch(day) ||
+          !_validText(name, 80) ||
+          (name as String).trim().length < 2 ||
+          (departmentId != null && !departmentIds.contains(departmentId)) ||
+          !holidayKeys.add('$day:${departmentId ?? 0}')) {
+        throw const InvalidBackup(
+          'El respaldo contiene días festivos inválidos o repetidos.',
+        );
+      }
+      holidays.add(
+        Map<String, Object?>.unmodifiable({
+          'id': id,
+          'day': day,
+          'name': name,
+          'department_id': departmentId,
+        }),
+      );
+    }
+    holidays.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     departments.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     employees.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
     events.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
@@ -346,6 +387,7 @@ class BackupSnapshot {
       List.unmodifiable(reviews),
       List.unmodifiable(consents),
       List.unmodifiable(departments),
+      List.unmodifiable(holidays),
     );
   }
 
@@ -362,9 +404,10 @@ class BackupSnapshot {
       utf8.encode(
         jsonEncode({
           'format': 'control-recursos-humanos',
-          'version': 6,
+          'version': 7,
           'createdAt': createdAt.toUtc().toIso8601String(),
           'departments': departments,
+          'holidays': holidays,
           'employees': employees,
           'attendance': events,
           'attendanceReviews': reviews,

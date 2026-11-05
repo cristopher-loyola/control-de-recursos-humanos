@@ -1,5 +1,6 @@
 import '../database/local_database.dart';
 import '../departments/schedule.dart';
+import '../holidays/holiday_store.dart' show formatDay, parseDay;
 import 'attendance_report.dart';
 
 class ReportData {
@@ -8,6 +9,7 @@ class ReportData {
     required this.departments,
     required this.pendingReviews,
     required this.withoutFace,
+    this.holidays = const [],
   });
   final List<EmployeeSummary> summaries;
 
@@ -15,6 +17,9 @@ class ReportData {
   final List<({int id, String name})> departments;
   final int pendingReviews;
   final int withoutFace;
+
+  /// Festivos del periodo que aplican al filtro elegido.
+  final List<ReportHoliday> holidays;
 }
 
 /// Lee de la base lo necesario para el tablero de asistencia.
@@ -89,6 +94,20 @@ class ReportStore {
         ''',
         [from, to],
       );
+      final holidayRows = await txn.query(
+        'holidays',
+        where: 'day >= ? AND day < ?',
+        whereArgs: [formatDay(start), formatDay(end)],
+        orderBy: 'day',
+      );
+      final holidays = [
+        for (final row in holidayRows)
+          ReportHoliday(
+            day: parseDay(row['day'] as String),
+            name: row['name'] as String,
+            departmentId: row['department_id'] as int?,
+          ),
+      ];
       final entries = <String, List<DateTime>>{};
       for (final row in entryRows) {
         entries
@@ -122,7 +141,15 @@ class ReportStore {
           start: start,
           end: end,
           now: _clock(),
+          holidays: holidays,
         ),
+        holidays: [
+          for (final h in holidays)
+            if (h.departmentId == null ||
+                (!withoutDepartment &&
+                    (departmentId == null || h.departmentId == departmentId)))
+              h,
+        ],
         departments: [
           for (final d in departments)
             (id: d.id, name: d.schedule.departmentName),

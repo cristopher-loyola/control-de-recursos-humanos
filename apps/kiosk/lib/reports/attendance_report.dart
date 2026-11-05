@@ -66,6 +66,21 @@ class ReportDepartment {
   final int workDays;
 }
 
+/// Día festivo o descanso autorizado; sin departamento aplica a todos.
+class ReportHoliday {
+  const ReportHoliday({
+    required this.day,
+    required this.name,
+    this.departmentId,
+  });
+  final DateTime day;
+  final String name;
+  final int? departmentId;
+
+  bool appliesTo(int? department) =>
+      departmentId == null || departmentId == department;
+}
+
 enum DayStatus { onTime, late, absent, pending, notScheduled }
 
 class DayResult {
@@ -101,7 +116,8 @@ class EmployeeSummary {
 /// - Tarde: entró después de la tolerancia.
 /// - Falta: no hay entrada en un día laborable ya transcurrido.
 /// - Pendiente: es hoy y todavía no se cumple su hora más la tolerancia.
-/// Los días de descanso, los futuros y los anteriores al alta no cuentan.
+/// Los días de descanso, los festivos, los futuros y los anteriores al alta
+/// no cuentan; si alguien trabajó en festivo, su entrada sí se registra.
 List<EmployeeSummary> buildReport({
   required List<ReportEmployee> employees,
   required List<ReportDepartment> departments,
@@ -109,6 +125,7 @@ List<EmployeeSummary> buildReport({
   required DateTime start,
   required DateTime end,
   required DateTime now,
+  List<ReportHoliday> holidays = const [],
 }) {
   final byId = {for (final d in departments) d.id: d};
   final today = DateTime(now.year, now.month, now.day);
@@ -141,6 +158,10 @@ List<EmployeeSummary> buildReport({
         continue;
       }
       final entry = firstEntry[day];
+      final holiday = holidays.any(
+        (h) => h.day == day && h.appliesTo(employee.departmentId),
+      );
+      if (holiday && entry == null) continue;
       if (entry != null) {
         final late = lateMinutes(department.schedule, entry);
         days.add(

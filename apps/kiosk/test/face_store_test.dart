@@ -9,6 +9,7 @@ import 'package:kiosk/backup/backup_snapshot.dart';
 import 'package:kiosk/database/local_database.dart';
 import 'package:kiosk/departments/department_store.dart';
 import 'package:kiosk/reports/report_store.dart';
+import 'package:kiosk/holidays/holiday_store.dart';
 import 'package:kiosk/employees/employee_store.dart';
 import 'package:kiosk/vision/consent_store.dart';
 import 'package:kiosk/vision/face_engine.dart';
@@ -111,6 +112,7 @@ void main() {
       );
       await db.execute('DROP TABLE employees');
       await db.execute('ALTER TABLE employees_v9 RENAME TO employees');
+      await db.execute('DROP TABLE holidays');
       await db.execute('DROP TABLE departments');
       await db.execute('PRAGMA foreign_keys = ON');
       for (final column in [
@@ -476,4 +478,52 @@ void main() {
       expect(data.summaries.map((s) => s.employee.number), ['002']);
     },
   );
+
+  test('Festivos oficiales, sin duplicados y con bitácora', () async {
+    expect(officialHolidays(2026).map((h) => formatDay(h.day)), [
+      '2026-01-01',
+      '2026-02-02',
+      '2026-03-16',
+      '2026-05-01',
+      '2026-09-16',
+      '2026-11-16',
+      '2026-12-25',
+    ]);
+    expect(
+      officialHolidays(2030).any((h) => h.day == DateTime(2030, 10, 1)),
+      isTrue,
+    );
+    final store = HolidayStore(
+      database,
+      authorize: authorize,
+      actor: () => 'test-admin',
+    );
+    expect(await store.addOfficial(2026), 7);
+    expect(await store.addOfficial(2026), 0);
+    await expectLater(
+      store.add(day: DateTime(2026, 12, 25), name: 'Otra vez'),
+      throwsA(isA<HolidayRuleError>()),
+    );
+    await store.add(day: DateTime(2026, 12, 24), name: 'Nochebuena');
+    final december = await store.list(
+      from: DateTime(2026, 12),
+      to: DateTime(2027),
+    );
+    expect(december.map((h) => h.name), ['Nochebuena', 'Navidad']);
+    await store.remove(december.first.id);
+    expect(
+      await store.list(from: DateTime(2026, 12), to: DateTime(2027)),
+      hasLength(1),
+    );
+    final audit = await (await database.open()).query(
+      'audit_entries',
+      where: "action LIKE 'holiday_%'",
+    );
+    expect(audit, hasLength(9));
+    staff = false;
+    await expectLater(
+      store.add(day: DateTime(2026, 12, 31), name: 'Fin de año'),
+      throwsStateError,
+    );
+  });
 }
