@@ -9,6 +9,7 @@ import 'backup/backup_service.dart';
 import 'database/local_database.dart';
 import 'employees/employee_store.dart';
 import 'theme/app_theme.dart';
+import 'vision/face_engine.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,7 +38,11 @@ class MyApp extends StatelessWidget {
         authorize: auth.requireStaff,
         actor: () => auth.accountName,
       ),
-      attendance: AttendanceStore(database, authorizeRecord: auth.requireStaff),
+      attendance: AttendanceStore(
+        database,
+        authorizeRecord: auth.requireStaff,
+        photoCipher: FaceEngine(),
+      ),
       backups: BackupService(
         database,
         authorize: auth.requireAdmin,

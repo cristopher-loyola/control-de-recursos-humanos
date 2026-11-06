@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../admin/admin_shell.dart';
+import '../attendance/pin_store.dart';
 import '../payroll/payroll.dart';
 import '../departments/department_store.dart';
 import '../theme/app_theme.dart';
@@ -17,12 +18,16 @@ class EmployeesPage extends StatefulWidget {
     required this.store,
     this.departments,
     this.onEnrollFace,
+    this.pins,
   });
   final EmployeeStore store;
 
   /// Si se indica, el alta pide departamento y la lista permite cambiarlo.
   final DepartmentStore? departments;
   final Future<void> Function(Employee)? onEnrollFace;
+
+  /// PIN de respaldo para checar cuando el rostro no se reconoce.
+  final PinStore? pins;
 
   @override
   State<EmployeesPage> createState() => _EmployeesPageState();
@@ -34,6 +39,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   final _search = TextEditingController();
   List<Employee> _employees = [];
   List<Department> _departments = [];
+  Set<String> _withPin = {};
   int? _departmentId;
   bool _loading = true;
   bool _saving = false;
@@ -54,10 +60,12 @@ class _EmployeesPageState extends State<EmployeesPage> {
     });
     try {
       final employees = await widget.store.list();
+      final withPin = await widget.pins?.withPin() ?? <String>{};
       final departments = await widget.departments?.list() ?? <Department>[];
       if (mounted) {
         setState(() {
           _employees = employees;
+          _withPin = withPin;
           _departments = departments;
           if (!departments.any((d) => d.id == _departmentId)) {
             _departmentId = departments.length == 1
@@ -175,6 +183,36 @@ class _EmployeesPageState extends State<EmployeesPage> {
       if (mounted) {
         setState(() => _message = 'No se pudo cambiar el departamento.');
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _changePin(Employee employee) async {
+    final pins = widget.pins!;
+    final result = await showDialog<({String? pin})>(
+      context: context,
+      builder: (_) => _PinDialog(
+        employee: employee,
+        hasPin: _withPin.contains(employee.number),
+      ),
+    );
+    if (result == null) return;
+    setState(() => _saving = true);
+    try {
+      await pins.assign(employee.number, result.pin);
+      await _load();
+      if (mounted) {
+        setState(
+          () => _message = result.pin == null
+              ? 'Se quitó el PIN de ${employee.name}.'
+              : 'PIN de ${employee.name}: ${result.pin}. Entrégaselo en privado.',
+        );
+      }
+    } on PinRuleError catch (error) {
+      if (mounted) setState(() => _message = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _message = 'No se pudo guardar el PIN.');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -319,6 +357,12 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           text:
                               '${formatMoney(employee.effectiveWageCents!)} diarios · ',
                         ),
+                      if (widget.pins != null)
+                        TextSpan(
+                          text: _withPin.contains(employee.number)
+                              ? 'Con PIN · '
+                              : 'Sin PIN · ',
+                        ),
                       TextSpan(
                         text: employee.hasFace
                             ? 'Rostro registrado'
@@ -337,6 +381,13 @@ class _EmployeesPageState extends State<EmployeesPage> {
             onPressed: _saving || _loading ? null : () => _changeWage(employee),
             child: const Text('Salario'),
           ),
+          if (widget.pins != null)
+            TextButton(
+              onPressed: _saving || _loading
+                  ? null
+                  : () => _changePin(employee),
+              child: const Text('PIN'),
+            ),
           if (_departments.isNotEmpty)
             TextButton(
               onPressed: _saving || _loading
@@ -518,4 +569,99 @@ class _WageDialogState extends State<_WageDialog> {
       ],
     );
   }
+}
+
+/// PIN de respaldo del empleado: se escribe o se genera al azar.
+class _PinDialog extends StatefulWidget {
+  const _PinDialog({required this.employee, required this.hasPin});
+  final Employee employee;
+  final bool hasPin;
+
+  @override
+  State<_PinDialog> createState() => _PinDialogState();
+}
+
+class _PinDialogState extends State<_PinDialog> {
+  final _pin = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final pin = _pin.text.trim();
+    final error = PinStore.validate(pin);
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    Navigator.of(context).pop((pin: pin));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('PIN de ${widget.employee.name}'),
+    content: SizedBox(
+      width: 400,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Sirve para checar cuando el rostro no se reconoce. Esas checadas llevan foto y siempre pasan a revisión.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _pin,
+                  autofocus: true,
+                  maxLength: 6,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onSubmitted: (_) => _save(),
+                  decoration: InputDecoration(
+                    labelText: widget.hasPin ? 'PIN nuevo' : 'PIN',
+                    hintText: '4 a 6 números',
+                    errorText: _error,
+                    counterText: '',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: OutlinedButton(
+                  onPressed: () => setState(() {
+                    _pin.text = PinStore.generate();
+                    _error = null;
+                  }),
+                  child: const Text('Generar'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      if (widget.hasPin)
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+          onPressed: () => Navigator.of(context).pop((pin: null)),
+          child: const Text('Quitar PIN'),
+        ),
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Guardar')),
+    ],
+  );
 }

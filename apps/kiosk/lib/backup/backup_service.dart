@@ -80,6 +80,9 @@ class BackupService {
           'Esta tablet tiene periodos de pre-nómina cerrados. La restauración está bloqueada para conservarlos.',
         );
       }
+      // Las fotos y los PIN no viajan en el respaldo: se vuelven a asignar.
+      await txn.delete('attendance_photos');
+      await txn.delete('employee_pins');
       await txn.delete('payroll_policy');
       await txn.delete('attendance_reviews');
       await txn.delete('consent_records');

@@ -4,12 +4,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kiosk/vision/face_capture_quality.dart';
 
 void main() {
-  test('Retries inverted frames without accepting a tilted face', () {
-    expect(FaceCaptureQuality.uprightRetry(0, 179), 180);
-    expect(FaceCaptureQuality.uprightRetry(270, -175), 90);
-    expect(FaceCaptureQuality.uprightRetry(90, 25), isNull);
-    expect(FaceCaptureQuality.uprightRetry(0, null), isNull);
-    expect(FaceCaptureQuality.uprightRetry(0, double.nan), isNull);
+  test('Distingue un rostro derecho de uno de lado o de cabeza', () {
+    // Ojos, nariz y comisuras de un rostro derecho, de lado y de cabeza.
+    const upright = [
+      Offset(40, 50),
+      Offset(80, 50),
+      Offset(60, 70),
+      Offset(45, 90),
+      Offset(75, 90),
+    ];
+    const sideways = [
+      Offset(50, 40),
+      Offset(50, 80),
+      Offset(70, 60),
+      Offset(90, 45),
+      Offset(90, 75),
+    ];
+    const upsideDown = [
+      Offset(80, 90),
+      Offset(40, 90),
+      Offset(60, 70),
+      Offset(75, 50),
+      Offset(45, 50),
+    ];
+    expect(FaceCaptureQuality.isUpright(upright), isTrue);
+    expect(FaceCaptureQuality.isUpright(sideways), isFalse);
+    expect(FaceCaptureQuality.isUpright(upsideDown), isFalse);
+    expect(FaceCaptureQuality.isUpright(const []), isFalse);
   });
   const image = Size(1000, 800);
   const centeredFace = Rect.fromLTWH(350, 230, 300, 340);

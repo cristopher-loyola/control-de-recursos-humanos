@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../admin/admin_shell.dart';
+import '../theme/app_theme.dart';
 
 import 'attendance_review_store.dart';
 
@@ -239,11 +242,20 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
                           ],
                           const SizedBox(height: 8),
                           Text(item.decision?.label ?? 'Pendiente de revisión'),
-                          Text(
-                            item.captureMethod == 'facial'
-                                ? 'Identificación facial · sin prueba de vida'
-                                : 'Registro manual · identidad sin verificar',
-                          ),
+                          Text(switch (item.captureMethod) {
+                            'facial' =>
+                              'Identificación facial · sin prueba de vida',
+                            'pin' => 'PIN del empleado · confirma su identidad con la foto',
+                            _ => 'Registro manual · identidad sin verificar',
+                          }),
+                          if (item.hasPhoto) ...[
+                            const SizedBox(height: 12),
+                            _PhotoThumb(
+                              load: () => widget.store.photo(item.eventId),
+                              title:
+                                  '${item.employeeName} · ${TimeOfDay.fromDateTime(item.occurredAt.toLocal()).format(context)}',
+                            ),
+                          ],
                           if (item.reason != null) ...[
                             const SizedBox(height: 4),
                             Text('Motivo: ${item.reason} · ${item.reviewer}'),
@@ -289,4 +301,84 @@ class _AttendanceReviewPageState extends State<AttendanceReviewPage> {
       ),
     );
   }
+}
+
+/// Como espejo, igual que la vista de la cámara frontal en el checador. La
+/// foto guardada no se altera.
+Widget _mirrored(Widget image) => Transform.flip(flipX: true, child: image);
+
+/// Foto tomada en el checador al usar PIN. Se descifra solo al mostrarla.
+class _PhotoThumb extends StatefulWidget {
+  const _PhotoThumb({required this.load, required this.title});
+  final Future<Uint8List?> Function() load;
+  final String title;
+
+  @override
+  State<_PhotoThumb> createState() => _PhotoThumbState();
+}
+
+class _PhotoThumbState extends State<_PhotoThumb> {
+  late final Future<Uint8List?> _photo = widget.load();
+
+  void _open(Uint8List bytes) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(widget.title),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560, maxHeight: 520),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: _mirrored(Image.memory(bytes, fit: BoxFit.contain)),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
+    future: _photo,
+    builder: (context, snapshot) {
+      final bytes = snapshot.data;
+      final Widget child;
+      if (snapshot.connectionState != ConnectionState.done) {
+        child = const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      } else if (bytes == null) {
+        child = const Center(
+          child: Text('Foto no disponible', textAlign: TextAlign.center),
+        );
+      } else {
+        child = _mirrored(Image.memory(bytes, fit: BoxFit.cover));
+      }
+      return Tooltip(
+        message: 'Ver foto',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: bytes == null ? null : () => _open(bytes),
+          child: Container(
+            width: 120,
+            height: 120,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.line),
+            ),
+            child: child,
+          ),
+        ),
+      );
+    },
+  );
 }

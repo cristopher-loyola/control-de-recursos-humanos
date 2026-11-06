@@ -116,6 +116,8 @@ void main() {
       await db.execute('DROP TABLE departments');
       await db.execute('DROP TABLE payroll_policy');
       await db.execute('DROP TABLE payroll_closures');
+      await db.execute('DROP TABLE attendance_photos');
+      await db.execute('DROP TABLE employee_pins');
       await db.execute('PRAGMA foreign_keys = ON');
       for (final column in [
         'capture_method',

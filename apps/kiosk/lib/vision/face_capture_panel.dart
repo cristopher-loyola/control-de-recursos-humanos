@@ -9,6 +9,14 @@ import 'face_capture_quality.dart';
 import 'face_engine.dart';
 import 'face_matching.dart';
 
+/// Pide una foto del siguiente cuadro de la cámara sin interrumpir la vista
+/// ni mostrar nada en pantalla. Devuelve null si la cámara no responde.
+class FaceSnapshots {
+  Future<Uint8List?> Function()? _take;
+
+  Future<Uint8List?> take() => _take?.call() ?? Future.value(null);
+}
+
 class FaceCapturePanel extends StatefulWidget {
   const FaceCapturePanel({
     super.key,
@@ -18,7 +26,11 @@ class FaceCapturePanel extends StatefulWidget {
     this.active = true,
     this.fill = false,
     this.highlight,
+    this.snapshots,
   });
+
+  /// Si se indica, permite tomar fotos del cuadro actual.
+  final FaceSnapshots? snapshots;
 
   /// Ocupa todo el espacio disponible con la imagen recortada al centro y el
   /// estado encima. Lo usa el checador.
@@ -54,11 +66,15 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
   bool _finished = false;
   bool _halfTurn = false;
   bool _failed = false;
-  bool _analysisHalfTurn = false;
+  // Giro extra que necesitó el análisis para ver el rostro derecho.
+  int _analysisTurn = 0;
+  int _emptyFrames = 0;
   Rect? _lastBox;
   DateTime? _lastSampleAt;
   int _epoch = 0;
   String _status = 'Preparando la cámara…';
+  Completer<Uint8List?>? _pendingSnapshot;
+  Future<void>? _snapshotWork;
 
   void _showStatus(String status) {
     if (mounted && !_disposed && _status != status) {
@@ -70,7 +86,92 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.snapshots?._take = _takeSnapshot;
     _operations = _operations.then((_) => _start());
+  }
+
+  Future<Uint8List?> _takeSnapshot() {
+    if (_disposed || _controller == null) return Future.value(null);
+    final pending = _pendingSnapshot ??= Completer<Uint8List?>();
+    return pending.future.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {
+        if (identical(_pendingSnapshot, pending)) _pendingSnapshot = null;
+        return null;
+      },
+    );
+  }
+
+  Future<void> _snapshot(
+    CameraImage frame,
+    Completer<Uint8List?> pending,
+  ) async {
+    try {
+      final rotation = _rotation();
+      if (rotation == null ||
+          frame.planes.length != 1 ||
+          frame.format.group != ImageFormatGroup.nv21) {
+        if (!pending.isCompleted) pending.complete(null);
+        return;
+      }
+      final bytes = Uint8List.fromList(frame.planes.single.bytes);
+      var angle = rotation;
+      // Con el análisis en pausa (al usar PIN) se busca el giro que deja el
+      // rostro derecho; así la foto sale bien aunque aún no se haya aprendido.
+      if (!widget.active) {
+        for (final turn in const [0, 90, 270, 180]) {
+          final candidate = (rotation + turn) % 360;
+          final detection = await _engine.detect(
+            bytes: bytes,
+            width: frame.width,
+            height: frame.height,
+            rotation: candidate,
+          );
+          final faces = FaceCaptureQuality.people(
+            detection.faces,
+            (face) => face.box,
+          );
+          if (faces.length == 1 &&
+              FaceCaptureQuality.isUpright(faces.single.landmarks)) {
+            angle = candidate;
+            if (turn != 0) {
+              _analysisTurn = (_analysisTurn + turn) % 360;
+              unawaited(_engine.setAnalysisTurn(_analysisTurn));
+            }
+            break;
+          }
+        }
+      }
+      final jpeg = await _engine.snapshot(
+        bytes: bytes,
+        width: frame.width,
+        height: frame.height,
+        rotation: angle,
+      );
+      if (!pending.isCompleted) pending.complete(jpeg);
+    } catch (_) {
+      if (!pending.isCompleted) pending.complete(null);
+    }
+  }
+
+  /// Grados para dejar derecho el cuadro de la cámara frontal.
+  int? _rotation() {
+    final camera = _camera;
+    final controller = _controller;
+    if (camera == null || controller == null) return null;
+    const orientations = {
+      DeviceOrientation.portraitUp: 0,
+      DeviceOrientation.landscapeLeft: 90,
+      DeviceOrientation.portraitDown: 180,
+      DeviceOrientation.landscapeRight: 270,
+    };
+    final orientation = orientations[controller.value.deviceOrientation]!;
+    return ((camera.lensDirection == CameraLensDirection.front
+                ? camera.sensorOrientation + orientation
+                : camera.sensorOrientation - orientation + 360) +
+            (_halfTurn ? 180 : 0) +
+            _analysisTurn) %
+        360;
   }
 
   void _reset() {
@@ -89,6 +190,7 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
         availableCameras(),
       ]);
       _halfTurn = await _engine.cameraRotation();
+      _analysisTurn = await _engine.analysisTurn();
       final cameras = setup[1] as List<CameraDescription>;
       if (_disposed) return;
       if (cameras.isEmpty) throw StateError('Cámara no disponible');
@@ -108,7 +210,6 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
         return;
       }
       _controller = controller;
-      _analysisHalfTurn = false;
       _reset();
       _failed = false;
       await controller.startImageStream(_onFrame);
@@ -165,6 +266,14 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
   }
 
   void _onFrame(CameraImage frame) {
+    final pending = _pendingSnapshot;
+    if (!_disposed && pending != null && _snapshotWork == null) {
+      _pendingSnapshot = null;
+      _snapshotWork = _snapshot(
+        frame,
+        pending,
+      ).whenComplete(() => _snapshotWork = null);
+    }
     if (_disposed || _finished || !widget.active || _frameWork != null) {
       return;
     }
@@ -185,20 +294,7 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
         _showStatus('La cámara no entrega un formato compatible.');
         return;
       }
-      const orientations = {
-        DeviceOrientation.portraitUp: 0,
-        DeviceOrientation.landscapeLeft: 90,
-        DeviceOrientation.portraitDown: 180,
-        DeviceOrientation.landscapeRight: 270,
-      };
-      final orientation = orientations[controller.value.deviceOrientation]!;
-      var degrees =
-          ((camera.lensDirection == CameraLensDirection.front
-                  ? camera.sensorOrientation + orientation
-                  : camera.sensorOrientation - orientation + 360) +
-              (_halfTurn ? 180 : 0) +
-              (_analysisHalfTurn ? 180 : 0)) %
-          360;
+      var degrees = _rotation()!;
       final bytes = Uint8List.fromList(frame.planes.single.bytes);
       Future<FaceDetection> detectAt(int angle) => _engine.detect(
         bytes: bytes,
@@ -212,20 +308,29 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
       var detection = await detectAt(degrees);
       var faces = peopleIn(detection);
       if (_disposed || epoch != _epoch || !mounted) return;
-      final retry = faces.length == 1
-          ? FaceCaptureQuality.uprightRetry(degrees, faces.single.roll)
-          : null;
-      if (retry != null) {
-        final corrected = await detectAt(retry);
-        final correctedFaces = peopleIn(corrected);
-        if (_disposed || epoch != _epoch || !mounted) return;
-        if (correctedFaces.length == 1 &&
-            correctedFaces.single.roll.abs() <= 20) {
-          degrees = retry;
-          detection = corrected;
-          faces = correctedFaces;
-          _analysisHalfTurn = !_analysisHalfTurn;
-          _reset();
+      // Si la cámara está montada girada, el rostro sale de lado o de cabeza:
+      // se prueban los otros giros y se conserva el que lo deja derecho. Sin
+      // rostro también se prueba de vez en cuando, porque YuNet casi no
+      // detecta caras de lado.
+      final turned =
+          faces.length == 1 &&
+          !FaceCaptureQuality.isUpright(faces.single.landmarks);
+      if (turned || (faces.isEmpty && ++_emptyFrames % 15 == 0)) {
+        for (final turn in const [90, 270, 180]) {
+          final angle = (degrees + turn) % 360;
+          final corrected = await detectAt(angle);
+          final correctedFaces = peopleIn(corrected);
+          if (_disposed || epoch != _epoch || !mounted) return;
+          if (correctedFaces.length == 1 &&
+              FaceCaptureQuality.isUpright(correctedFaces.single.landmarks)) {
+            degrees = angle;
+            detection = corrected;
+            faces = correctedFaces;
+            _analysisTurn = (_analysisTurn + turn) % 360;
+            unawaited(_engine.setAnalysisTurn(_analysisTurn));
+            _reset();
+            break;
+          }
         }
       }
       final face = faces.length == 1 ? faces.single : null;
@@ -296,6 +401,11 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
   @override
   void dispose() {
     _disposed = true;
+    if (widget.snapshots?._take == _takeSnapshot) {
+      widget.snapshots!._take = null;
+    }
+    _pendingSnapshot?.complete(null);
+    _pendingSnapshot = null;
     WidgetsBinding.instance.removeObserver(this);
     _operations = _operations.then((_) => _stop());
     super.dispose();
@@ -459,7 +569,8 @@ class _FaceCapturePanelState extends State<FaceCapturePanel>
                 : () async {
                     _epoch++;
                     _reset();
-                    _analysisHalfTurn = false;
+                    _analysisTurn = 0;
+                    unawaited(_engine.setAnalysisTurn(0));
                     setState(() => _halfTurn = !_halfTurn);
                     await _engine.setCameraRotation(_halfTurn);
                   },

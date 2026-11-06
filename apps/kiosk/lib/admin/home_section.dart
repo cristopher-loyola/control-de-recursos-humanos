@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../departments/schedule.dart';
 import '../reports/attendance_export.dart';
 import '../reports/attendance_report.dart';
+import '../reports/file_share.dart';
 import '../reports/report_store.dart';
 import '../theme/app_theme.dart';
 import 'admin_shell.dart';
@@ -110,7 +111,8 @@ class _HomeSectionState extends State<HomeSection> {
     _load();
   }
 
-  Future<void> _export() async {
+  /// Guarda el Excel en la tablet o, con [share], abre el menú para enviarlo.
+  Future<void> _export({bool share = false}) async {
     final data = _data;
     if (data == null || _exporting) return;
     setState(() => _exporting = true);
@@ -134,11 +136,19 @@ class _HomeSectionState extends State<HomeSection> {
         generatedAt: widget._clock(),
         organizationName: widget.organizationName,
       );
+      final name = 'asistencia-$kind-$stamp.xlsx';
+      if (share) {
+        await shareFile(
+          name: name,
+          bytes: bytes,
+          title: 'Compartir reporte de asistencia',
+        );
+        return;
+      }
       final saved = await FilePicker.saveFile(
-        fileName: 'asistencia-$kind-$stamp.xlsx',
+        fileName: name,
         bytes: bytes,
-        mimeType:
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        mimeType: xlsxMimeType,
         dialogTitle: 'Guardar reporte de asistencia',
       );
       messenger.showSnackBar(
@@ -152,8 +162,12 @@ class _HomeSectionState extends State<HomeSection> {
       );
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo generar el archivo de Excel.'),
+        SnackBar(
+          content: Text(
+            share
+                ? 'No se pudo compartir el archivo.'
+                : 'No se pudo generar el archivo de Excel.',
+          ),
         ),
       );
     } finally {
@@ -374,6 +388,16 @@ class _HomeSectionState extends State<HomeSection> {
                       )
                     : const Icon(Icons.file_download_outlined, size: 20),
                 label: const Text('Exportar a Excel'),
+              ),
+            ),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: _data == null || _exporting
+                    ? null
+                    : () => _export(share: true),
+                icon: const Icon(Icons.share_outlined, size: 20),
+                label: const Text('Compartir'),
               ),
             ),
           ],

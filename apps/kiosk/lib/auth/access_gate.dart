@@ -16,6 +16,7 @@ import '../attendance/attendance_page.dart';
 import '../attendance/attendance_store.dart';
 import '../attendance/attendance_review_page.dart';
 import '../attendance/attendance_review_store.dart';
+import '../attendance/pin_store.dart';
 import '../vision/consent_page.dart';
 import '../vision/consent_store.dart';
 import '../vision/face_engine.dart';
@@ -142,6 +143,11 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
               authorizeEnrollment: auth.requireStaff,
               actor: () => auth.accountName,
             );
+            final pins = PinStore(
+              widget.attendance.database,
+              authorizeAssign: auth.requireStaff,
+              actor: () => auth.accountName,
+            );
             return Navigator(
               key: ValueKey(
                 '${auth.configured}-${auth.isAuthenticated}-${auth.organizationConfigured}-${auth.isAdministrator}-${auth.pendingRecoveryCode != null}',
@@ -162,6 +168,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                     return FaceClockPage(
                       organizationName: auth.organizationName,
                       faces: faces,
+                      pins: pins,
                       attendance: widget.attendance,
                       onOpenAdmin: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
@@ -197,6 +204,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                   }
                   final reviews = AttendanceReviewStore(
                     widget.attendance.database,
+                    photoCipher: widget.attendance.photoCipher,
                     authorize: auth.requireStaff,
                     actor: () => auth.accountName,
                   );
@@ -233,6 +241,7 @@ class _AccessGateState extends State<AccessGate> with WidgetsBindingObserver {
                         builder: (_) => EmployeesPage(
                           store: widget.employees,
                           departments: departments,
+                          pins: pins,
                           onEnrollFace: (employee) async {
                             auth.requireStaff();
                             await Navigator.of(context).push(

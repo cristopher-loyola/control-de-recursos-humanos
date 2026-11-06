@@ -3,11 +3,16 @@ import 'dart:ui';
 
 /// Revisa encuadre; no verifica identidad ni prueba de vida.
 class FaceCaptureQuality {
-  /// Retry upside-down metadata; never treat an inverted face as upright.
-  static int? uprightRetry(int rotation, double? roll) =>
-      roll != null && roll.isFinite && roll.abs() > 120
-      ? (rotation + 180) % 360
-      : null;
+  /// Rostro derecho: ojos casi horizontales y por encima de la boca. Con la
+  /// cámara montada de lado o de cabeza los ojos quedan verticales o abajo.
+  /// Puntos en el orden de YuNet: ojo, ojo, nariz, comisura, comisura.
+  static bool isUpright(List<Offset> landmarks) {
+    if (landmarks.length != 5) return false;
+    final roll = rollFrom(landmarks[0], landmarks[1]);
+    final eyes = (landmarks[0].dy + landmarks[1].dy) / 2;
+    final mouth = (landmarks[3].dy + landmarks[4].dy) / 2;
+    return roll.isFinite && roll.abs() <= 45 && eyes < mouth;
+  }
 
   /// Keeps the largest face plus any of comparable size (a real second person).
   /// Small detections are background noise and must not block the capture.

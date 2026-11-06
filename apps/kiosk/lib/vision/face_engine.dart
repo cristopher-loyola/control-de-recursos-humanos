@@ -17,6 +17,14 @@ class FaceEngine implements TemplateCipher {
 
   Future<bool> cameraRotation() async =>
       await channel.invokeMethod<bool>('cameraRotation') ?? false;
+
+  /// Giro extra que aprendió el análisis para ver el rostro derecho en esta
+  /// tablet (0, 90, 180 o 270). Se conserva entre reinicios.
+  Future<int> analysisTurn() async =>
+      await channel.invokeMethod<int>('analysisTurn') ?? 0;
+  Future<void> setAnalysisTurn(int value) =>
+      channel.invokeMethod<void>('setAnalysisTurn', value);
+
   Future<void> setCameraRotation(bool value) =>
       channel.invokeMethod<void>('setCameraRotation', value);
 
@@ -65,6 +73,25 @@ class FaceEngine implements TemplateCipher {
           DetectedFace.fromRow(i, rows[i].cast<num>()),
       ],
     );
+  }
+
+  /// Foto JPEG del cuadro, derecha y de máximo 640 px por lado.
+  Future<Uint8List> snapshot({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int rotation,
+  }) async {
+    final jpeg = await channel.invokeMethod<Uint8List>('snapshot', {
+      'bytes': bytes,
+      'width': width,
+      'height': height,
+      'rotation': rotation,
+    });
+    if (jpeg == null || jpeg.isEmpty) {
+      throw StateError('No se pudo tomar la foto.');
+    }
+    return jpeg;
   }
 
   /// Plantilla SFace del rostro [index] del último cuadro analizado.

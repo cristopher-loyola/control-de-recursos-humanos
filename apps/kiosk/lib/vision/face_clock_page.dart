@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../attendance/attendance_store.dart';
+import '../attendance/pin_store.dart';
 import '../theme/app_theme.dart';
 import 'face_capture_panel.dart';
 import 'face_matching.dart';
 import 'face_template_store.dart';
+import 'pin_pad_dialog.dart';
 
 /// Checador: reconoce el rostro y el empleado elige Entrada o Salida. La cámara
 /// queda encendida entre una persona y otra.
@@ -16,9 +19,13 @@ class FaceClockPage extends StatefulWidget {
     required this.faces,
     required this.attendance,
     required this.onOpenAdmin,
+    this.pins,
     this.organizationName,
   });
   final FaceTemplateStore faces;
+
+  /// Respaldo cuando el rostro no se reconoce; sin él no se muestra la opción.
+  final PinStore? pins;
   final AttendanceStore attendance;
   final VoidCallback onOpenAdmin;
   final String? organizationName;
@@ -39,6 +46,14 @@ class _FaceClockPageState extends State<FaceClockPage> {
   bool _scanning = true;
   bool _saving = false;
   FaceMatch? _match;
+  PinCheck? _pin;
+  Uint8List? _photo;
+  final _snapshots = FaceSnapshots();
+
+  // Intentos sin confianza suficiente: los primeros se reintentan en silencio.
+  static const _quietRetries = 2;
+  int _misses = 0;
+  DateTime? _lastMiss;
   AttendanceKind? _next;
   AttendanceEvent? _last;
   String? _title;
@@ -51,6 +66,8 @@ class _FaceClockPageState extends State<FaceClockPage> {
     setState(() {
       _scanning = false;
       _match = null;
+      _pin = null;
+      _photo = null;
       _outcome = outcome;
       _title = title;
       _detail = detail;
@@ -65,6 +82,8 @@ class _FaceClockPageState extends State<FaceClockPage> {
       setState(() {
         _scanning = true;
         _match = null;
+        _pin = null;
+        _photo = null;
         _next = null;
         _last = null;
         _title = null;
@@ -82,37 +101,26 @@ class _FaceClockPageState extends State<FaceClockPage> {
     if (!_scanning) return;
     try {
       final match = await widget.faces.identify(samples);
-      final last = await widget.attendance.lastFor(match.employeeNumber);
-      if (last != null &&
-          DateTime.now().toUtc().difference(last.occurredAt) < _cooldown) {
-        _show(
-          _Outcome.notice,
-          match.employeeName,
-          'Ya registraste tu ${last.kind.label.toLowerCase()} a las ${_time(last.occurredAt)}.',
-          _resultPause,
-        );
-        return;
+      _misses = 0;
+      await _offerChoice(
+        match.employeeNumber,
+        match.employeeName,
+        match: match,
+      );
+    } on FaceNotRecognized catch (error) {
+      final now = DateTime.now();
+      if (_lastMiss == null ||
+          now.difference(_lastMiss!) > const Duration(seconds: 15)) {
+        _misses = 0;
       }
-      final next = await widget.attendance.nextFor(match.employeeNumber);
-      if (next == null) {
-        _show(
-          _Outcome.notice,
-          match.employeeName,
-          'Ya registraste tu entrada y salida de hoy.',
-          _resultPause,
-        );
-        return;
+      _lastMiss = now;
+      _misses++;
+      if (_misses <= _quietRetries) {
+        // La cámara sigue leyendo; el aviso sale en la etiqueta de la cámara.
+        throw const FaceRuleError('Acércate un poco y mira de frente.');
       }
-      if (!mounted) return;
-      setState(() {
-        _scanning = false;
-        _match = match;
-        _next = next;
-        _last = last;
-        _title = null;
-      });
-      _timer?.cancel();
-      _timer = Timer(_choiceTimeout, _scanAgain);
+      _misses = 0;
+      _show(_Outcome.failure, error.message, null, _failurePause);
     } on AttendanceRuleError catch (error) {
       _show(_Outcome.notice, error.message, null, _resultPause);
     } on FaceRuleError catch (error) {
@@ -127,22 +135,118 @@ class _FaceClockPageState extends State<FaceClockPage> {
     }
   }
 
+  /// Muestra Entrada y Salida a quien ya se identificó, por rostro o por PIN.
+  Future<void> _offerChoice(
+    String number,
+    String name, {
+    FaceMatch? match,
+    PinCheck? pin,
+    Uint8List? photo,
+  }) async {
+    final last = await widget.attendance.lastFor(number);
+    if (last != null &&
+        DateTime.now().toUtc().difference(last.occurredAt) < _cooldown) {
+      _show(
+        _Outcome.notice,
+        name,
+        'Ya registraste tu ${last.kind.label.toLowerCase()} a las ${_time(last.occurredAt)}.',
+        _resultPause,
+      );
+      return;
+    }
+    final next = await widget.attendance.nextFor(number);
+    if (next == null) {
+      _show(
+        _Outcome.notice,
+        name,
+        'Ya registraste tu entrada y salida de hoy.',
+        _resultPause,
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _scanning = false;
+      _match = match;
+      _pin = pin;
+      _photo = photo;
+      _next = next;
+      _last = last;
+      _title = null;
+    });
+    _timer?.cancel();
+    _timer = Timer(_choiceTimeout, _scanAgain);
+  }
+
+  /// Respaldo cuando el rostro no se reconoce: número y PIN, y la cámara toma
+  /// una foto para que RH confirme quién checó.
+  Future<void> _usePin() async {
+    final pins = widget.pins;
+    if (pins == null) return;
+    _timer?.cancel();
+    setState(() {
+      _scanning = false;
+      _match = null;
+      _title = null;
+    });
+    final check = await showDialog<PinCheck>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PinPadDialog(pins: pins),
+    );
+    if (check == null) {
+      _scanAgain();
+      return;
+    }
+    final photo = await _snapshots.take();
+    try {
+      await _offerChoice(
+        check.employeeNumber,
+        check.employeeName,
+        pin: check,
+        photo: photo,
+      );
+    } on AttendanceRuleError catch (error) {
+      _show(_Outcome.notice, error.message, null, _resultPause);
+    } catch (_) {
+      _show(
+        _Outcome.failure,
+        'No se pudo continuar.',
+        'Vuelve a intentarlo o solicita apoyo a RH.',
+        _failurePause,
+      );
+    }
+  }
+
+  String? get _chosenName => _match?.employeeName ?? _pin?.employeeName;
+  String? get _chosenNumber => _match?.employeeNumber ?? _pin?.employeeNumber;
+
   Future<void> _record(AttendanceKind kind) async {
     final match = _match;
-    if (_saving || match == null) return;
+    final pin = _pin;
+    final name = _chosenName;
+    if (_saving || name == null) return;
     _timer?.cancel();
     setState(() => _saving = true);
     try {
-      await widget.attendance.recordFacial(match, kind);
+      if (pin != null) {
+        await widget.attendance.recordPin(pin, kind, photo: _photo);
+      } else {
+        await widget.attendance.recordFacial(match!, kind);
+      }
       _show(
         _Outcome.success,
         '${kind.label} registrada',
-        '${match.employeeName} · ${_time(DateTime.now())}. Si no eres tú, avisa a RH.',
+        pin != null
+            ? '$name · ${_time(DateTime.now())}. RH la revisará.'
+            : '$name · ${_time(DateTime.now())}. Si no eres tú, avisa a RH.',
         _resultPause,
       );
     } on AttendanceRuleError catch (error) {
       _show(_Outcome.notice, error.message, null, _resultPause);
     } on FaceRuleError catch (error) {
+      _show(_Outcome.failure, error.message, null, _failurePause);
+    } on PinRuleError catch (error) {
       _show(_Outcome.failure, error.message, null, _failurePause);
     } catch (_) {
       _show(
@@ -174,7 +278,7 @@ class _FaceClockPageState extends State<FaceClockPage> {
   }
 
   Color? get _highlight {
-    if (_match != null) return AppColors.accent;
+    if (_chosenName != null) return AppColors.accent;
     if (_title == null) return null;
     return switch (_outcome) {
       _Outcome.success => AppColors.accent,
@@ -197,8 +301,20 @@ class _FaceClockPageState extends State<FaceClockPage> {
         style: Theme.of(context).textTheme.bodyLarge
             ?.copyWith(color: AppColors.muted),
       ),
+      ?_pinButton(),
     ],
   );
+
+  Widget? _pinButton() => widget.pins == null
+      ? null
+      : Padding(
+          padding: const EdgeInsets.only(top: 20),
+          child: OutlinedButton.icon(
+            onPressed: _saving ? null : _usePin,
+            icon: const Icon(Icons.dialpad, size: 20),
+            label: const Text('No me reconoce: usar PIN'),
+          ),
+        );
 
   Widget _result(BuildContext context) {
     final text = Theme.of(context).textTheme;
@@ -224,12 +340,14 @@ class _FaceClockPageState extends State<FaceClockPage> {
             style: text.bodyLarge?.copyWith(color: AppColors.muted),
           ),
         ],
+        if (_outcome == _Outcome.failure) ?_pinButton(),
       ],
     );
   }
 
   Widget _choice(BuildContext context) {
-    final match = _match!;
+    final name = _chosenName!;
+    final number = _chosenNumber!;
     final text = Theme.of(context).textTheme;
     Widget option(AttendanceKind kind, IconData icon) {
       final reason = _blockedReason(kind);
@@ -268,16 +386,15 @@ class _FaceClockPageState extends State<FaceClockPage> {
     }
 
     return Column(
-      key: ValueKey('choice-${match.employeeNumber}'),
+      key: ValueKey('choice-$number'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Hola, ${match.employeeName}',
-          style: text.headlineSmall?.copyWith(fontSize: 28),
-        ),
+        Text('Hola, $name', style: text.headlineSmall?.copyWith(fontSize: 28)),
         const SizedBox(height: 4),
         Text(
-          'No. ${match.employeeNumber} · ¿Qué vas a registrar?',
+          _pin == null
+              ? 'No. $number · ¿Qué vas a registrar?'
+              : 'No. $number · Con PIN: RH revisará tu checada.',
           style: text.bodyLarge?.copyWith(color: AppColors.muted),
         ),
         const SizedBox(height: 20),
@@ -316,7 +433,7 @@ class _FaceClockPageState extends State<FaceClockPage> {
     ),
     layoutBuilder: (current, previous) =>
         Stack(alignment: Alignment.topLeft, children: [...previous, ?current]),
-    child: _match != null
+    child: _chosenName != null
         ? _choice(context)
         : _title != null
         ? _result(context)
@@ -325,6 +442,7 @@ class _FaceClockPageState extends State<FaceClockPage> {
 
   Widget _camera() => FaceCapturePanel(
     onSamples: _identify,
+    snapshots: _snapshots,
     active: _scanning,
     fill: true,
     highlight: _highlight,
