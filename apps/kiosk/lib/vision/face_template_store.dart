@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../audit/audit_store.dart';
@@ -97,7 +97,7 @@ class FaceTemplateStore {
       ),
     );
     final raw = jsonDecode(utf8.decode(bytes)) as List;
-    return FaceMatching.samples(
+    return FaceMatching.gallery(
       raw
           .map(
             (sample) =>
@@ -201,6 +201,39 @@ class FaceTemplateStore {
     _cacheVersion = null;
   }
 
+  /// Guarda en la galería del empleado las tomas nuevas de una
+  /// identificación clara, para que el rostro se adapte con el uso.
+  Future<void> _learn(_ActiveFace face, List<List<double>> samples) async {
+    final updated = FaceMatching.learn(face.samples, samples);
+    if (updated == null) return;
+    final bytes = await cipher.seal(
+      Uint8List.fromList(utf8.encode(jsonEncode(updated))),
+      _context(face.employeeNumber, face.consentId, face.templateId),
+    );
+    final db = await database.open();
+    final changed = await db.update(
+      'face_templates',
+      {'encrypted_template': bytes},
+      where: 'id = ? AND employee_number = ? AND consent_id = ?',
+      whereArgs: [face.templateId, face.employeeNumber, face.consentId],
+    );
+    final cached = _cachedFaces;
+    if (changed == 1 && cached != null) {
+      _cachedFaces = List.unmodifiable([
+        for (final item in cached)
+          item.templateId == face.templateId
+              ? _ActiveFace(
+                  employeeNumber: item.employeeNumber,
+                  employeeName: item.employeeName,
+                  templateId: item.templateId,
+                  consentId: item.consentId,
+                  samples: updated,
+                )
+              : item,
+      ]);
+    }
+  }
+
   Future<FaceMatch> identify(List<List<double>> values) async {
     final samples = FaceMatching.samples(values);
     final faces = await _activeFaces();
@@ -222,12 +255,23 @@ class FaceTemplateStore {
         second = score;
       }
     }
+    if (kDebugMode) {
+      // Solo puntajes, sin datos de la persona, para calibrar en pruebas.
+      debugPrint(
+        'Identificación facial: mejor ${first.toStringAsFixed(3)}, segunda ${second.toStringAsFixed(3)}',
+      );
+    }
     if (best == null ||
         first < FaceMatching.threshold ||
         first - second < FaceMatching.margin) {
-      throw const FaceRuleError(
-        'No pude identificarte con suficiente confianza. Repite la toma o solicita apoyo a RH.',
-      );
+      throw const FaceNotRecognized();
+    }
+    if (first >= FaceMatching.learnThreshold) {
+      try {
+        await _learn(best, samples);
+      } catch (_) {
+        // Aprender es opcional: si falla, la identificación sigue siendo válida.
+      }
     }
     return FaceMatch._(
       best.employeeNumber,

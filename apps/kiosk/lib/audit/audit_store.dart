@@ -33,6 +33,9 @@ enum AuditAction {
   consentRecorded('consent_recorded', 'Consentimiento documentado'),
   consentRevoked('consent_revoked', 'Consentimiento revocado'),
   attendanceReviewed('attendance_reviewed', 'Checada manual revisada'),
+  pinAssigned('pin_assigned', 'PIN de empleado asignado'),
+  pinRemoved('pin_removed', 'PIN de empleado eliminado'),
+  pinLocked('pin_locked', 'PIN bloqueado por intentos fallidos'),
   employeeWageChanged('employee_wage_changed', 'Salario de empleado cambiado'),
   payrollPolicyChanged(
     'payroll_policy_changed',
@@ -115,6 +118,12 @@ class AuditEntry {
       case AuditAction.holidayAdded:
       case AuditAction.holidayRemoved:
         return '${details['day']} · ${details['name']} · ${details['scope'] ?? 'Toda la empresa'}';
+      case AuditAction.pinAssigned:
+        return 'Se asignó un PIN al empleado ${details['employeeNumber']}.';
+      case AuditAction.pinRemoved:
+        return 'Se quitó el PIN del empleado ${details['employeeNumber']}.';
+      case AuditAction.pinLocked:
+        return 'PIN del empleado ${details['employeeNumber']} bloqueado 15 minutos.';
       case AuditAction.consentRecorded:
         return 'Se registró el folio del consentimiento de ${details['employeeNumber']}.';
       case AuditAction.consentRevoked:

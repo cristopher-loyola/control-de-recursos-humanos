@@ -11,7 +11,10 @@ import org.opencv.android.OpenCVLoader
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfByte
+import org.opencv.core.MatOfInt
 import org.opencv.core.Size
+import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.FaceDetectorYN
 import org.opencv.objdetect.FaceRecognizerSF
@@ -45,9 +48,12 @@ class FaceEngine(private val context: Context, messenger: BinaryMessenger) {
                         "extract" -> extract(call.arguments as Map<*, *>)
                         "detect" -> detect(call.arguments as Map<*, *>)
                         "extractDetected" -> extractDetected((call.arguments as Number).toInt())
+                        "snapshot" -> snapshot(call.arguments as Map<*, *>)
                         "seal" -> crypt(call.arguments as Map<*, *>, true)
                         "unseal" -> crypt(call.arguments as Map<*, *>, false)
                         "cameraRotation" -> context.getSharedPreferences("face_camera", Context.MODE_PRIVATE).getBoolean("half_turn", false)
+                        "analysisTurn" -> context.getSharedPreferences("face_camera", Context.MODE_PRIVATE).getInt("analysis_turn", 0)
+                        "setAnalysisTurn" -> { context.getSharedPreferences("face_camera", Context.MODE_PRIVATE).edit().putInt("analysis_turn", (call.arguments as Number).toInt()).apply(); null }
                         "setCameraRotation" -> { context.getSharedPreferences("face_camera", Context.MODE_PRIVATE).edit().putBoolean("half_turn", call.arguments as Boolean).apply(); null }
                         else -> throw IllegalArgumentException("Unsupported operation")
                     }
@@ -140,6 +146,25 @@ class FaceEngine(private val context: Context, messenger: BinaryMessenger) {
         return mapOf("width" to frame.cols(), "height" to frame.rows(), "faces" to rows)
     }
 
+    /** Foto JPEG del cuadro, derecha y reducida a 640 px por lado, para evidencia. */
+    private fun snapshot(args: Map<*, *>): ByteArray {
+        val frame = upright(args)
+        val small = Mat()
+        val jpeg = MatOfByte()
+        try {
+            val scale = 640.0 / maxOf(frame.cols(), frame.rows())
+            if (scale < 1) {
+                Imgproc.resize(frame, small, Size(), scale, scale, Imgproc.INTER_AREA)
+            } else {
+                frame.copyTo(small)
+            }
+            check(Imgcodecs.imencode(".jpg", small, jpeg, MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, 80)))
+            return jpeg.toArray()
+        } finally {
+            listOf(frame, small, jpeg).forEach { it.release() }
+        }
+    }
+
     private fun extractDetected(index: Int): List<Double> {
         val frame = checkNotNull(lastFrame)
         val faces = checkNotNull(lastFaces)
@@ -219,7 +244,7 @@ class FaceEngine(private val context: Context, messenger: BinaryMessenger) {
     private fun crypt(args: Map<*, *>, encrypt: Boolean): ByteArray {
         val data = args["bytes"] as ByteArray
         val aad = (args["context"] as String).toByteArray(Charsets.UTF_8)
-        require(data.size in 1..32768 && aad.size in 1..1024)
+        require(data.size in 1..1_048_576 && aad.size in 1..1024)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         if (encrypt) {
             cipher.init(Cipher.ENCRYPT_MODE, key())

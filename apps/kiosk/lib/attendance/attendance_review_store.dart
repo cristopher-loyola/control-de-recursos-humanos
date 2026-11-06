@@ -1,4 +1,8 @@
+import 'dart:typed_data';
+
 import '../audit/audit_store.dart';
+import '../vision/face_engine.dart' show TemplateCipher;
+import 'attendance_store.dart' show attendancePhotoContext;
 import '../database/local_database.dart';
 import '../payroll/payroll_store.dart' show isPayrollClosed;
 
@@ -29,10 +33,14 @@ class AttendanceReviewItem {
     this.reviewedAt,
     this.captureMethod = 'manual',
     this.scheduleNote,
+    this.hasPhoto = false,
   });
 
   final int eventId;
   final String captureMethod;
+
+  /// Foto tomada en el checador al usar PIN.
+  final bool hasPhoto;
 
   /// Por qué llegó a revisión según el horario del departamento.
   final String? scheduleNote;
@@ -51,6 +59,7 @@ class AttendanceReviewItem {
       eventId: row['id'] as int,
       captureMethod: row['capture_method'] as String? ?? 'manual',
       scheduleNote: row['schedule_note'] as String?,
+      hasPhoto: row['has_photo'] == 1,
       employeeNumber: row['employee_number'] as String,
       employeeName: row['employee_name'] as String,
       kind: row['kind'] as String,
@@ -78,10 +87,12 @@ class AttendanceReviewStore {
     this.database, {
     required this.authorize,
     required this.actor,
+    this.photoCipher,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final LocalDatabase database;
+  final TemplateCipher? photoCipher;
   final void Function() authorize;
   final String Function() actor;
   final DateTime Function() _clock;
@@ -98,7 +109,8 @@ class AttendanceReviewStore {
         '''
         SELECT a.id, a.employee_number, e.name AS employee_name,
                a.kind, a.occurred_at, a.capture_method, a.schedule_note, r.decision, r.reviewer, r.reason,
-               r.reviewed_at
+               r.reviewed_at,
+               EXISTS(SELECT 1 FROM attendance_photos p WHERE p.event_id = a.id) AS has_photo
         FROM attendance_events a
         JOIN employees e ON e.number = a.employee_number
         LEFT JOIN attendance_reviews r ON r.id = (
@@ -112,6 +124,23 @@ class AttendanceReviewStore {
       );
       return rows.map(AttendanceReviewItem.fromRow).toList();
     });
+  }
+
+  /// Foto JPEG de una checada con PIN, descifrada solo para mostrarla a RH.
+  Future<Uint8List?> photo(int eventId) async {
+    authorize();
+    final rows = await (await database.open()).query(
+      'attendance_photos',
+      columns: ['encrypted_jpeg'],
+      where: 'event_id = ?',
+      whereArgs: [eventId],
+    );
+    if (rows.isEmpty || photoCipher == null) return null;
+    authorize();
+    return photoCipher!.unseal(
+      rows.single['encrypted_jpeg'] as Uint8List,
+      attendancePhotoContext(eventId),
+    );
   }
 
   Future<void> review(

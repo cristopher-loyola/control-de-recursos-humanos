@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../admin/admin_shell.dart';
 import '../admin/dashboard_widgets.dart';
+import '../reports/file_share.dart';
 import '../theme/app_theme.dart';
 import 'payroll.dart';
 import 'payroll_export.dart';
@@ -194,22 +195,32 @@ class _PayrollPageState extends State<PayrollPage> {
     }
   }
 
-  Future<void> _export() async {
+  /// Guarda el Excel en la tablet o, con [share], abre el menú para enviarlo.
+  Future<void> _export({bool share = false}) async {
     final data = _data;
     if (data == null) return;
     setState(() => _busy = true);
     try {
       final start = data.start;
+      final name =
+          'prenomina-${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}.xlsx';
+      final bytes = buildPayrollWorkbook(
+        data: data,
+        generatedAt: widget._clock(),
+        organizationName: widget.organizationName,
+      );
+      if (share) {
+        await shareFile(
+          name: name,
+          bytes: bytes,
+          title: 'Compartir pre-nómina',
+        );
+        return;
+      }
       final saved = await FilePicker.saveFile(
-        fileName:
-            'prenomina-${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}.xlsx',
-        bytes: buildPayrollWorkbook(
-          data: data,
-          generatedAt: widget._clock(),
-          organizationName: widget.organizationName,
-        ),
-        mimeType:
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        fileName: name,
+        bytes: bytes,
+        mimeType: xlsxMimeType,
         dialogTitle: 'Guardar pre-nómina',
       );
       if (mounted) {
@@ -218,7 +229,13 @@ class _PayrollPageState extends State<PayrollPage> {
         );
       }
     } catch (_) {
-      if (mounted) _notify('No se pudo generar el archivo de Excel.');
+      if (mounted) {
+        _notify(
+          share
+              ? 'No se pudo compartir el archivo.'
+              : 'No se pudo generar el archivo de Excel.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -375,6 +392,11 @@ class _PayrollPageState extends State<PayrollPage> {
               onPressed: _busy ? null : _export,
               icon: const Icon(Icons.file_download_outlined, size: 20),
               label: const Text('Excel'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _export(share: true),
+              icon: const Icon(Icons.share_outlined, size: 20),
+              label: const Text('Compartir'),
             ),
             primary,
           ],

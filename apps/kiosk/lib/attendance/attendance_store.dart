@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import '../database/local_database.dart';
 import '../departments/schedule.dart';
+import 'pin_store.dart';
 import '../vision/face_engine.dart';
 import '../vision/face_template_store.dart';
 import '../vision/face_matching.dart';
@@ -21,6 +24,9 @@ AttendanceKind _expected(String? lastKind, DateTime? lastAt, DateTime now) =>
     lastKind == 'entry' && now.difference(lastAt!) < openEntryLimit
     ? AttendanceKind.exit
     : AttendanceKind.entry;
+
+/// Liga la foto cifrada a su checada: no se puede pasar a otra.
+String attendancePhotoContext(int eventId) => 'attendance-photo:v1:$eventId';
 
 class AttendanceRuleError implements Exception {
   const AttendanceRuleError(this.message);
@@ -54,10 +60,14 @@ class AttendanceStore {
   AttendanceStore(
     this.database, {
     required this.authorizeRecord,
+    this.photoCipher,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
   final LocalDatabase database;
   final void Function() authorizeRecord;
+
+  /// Cifra la foto de las checadas con PIN.
+  final TemplateCipher? photoCipher;
   final DateTime Function() _clock;
 
   Future<AttendanceKind?> nextFor(String number) async {
@@ -113,15 +123,30 @@ class AttendanceStore {
   Future<void> recordFacial(FaceMatch match, AttendanceKind kind) =>
       _record(match.employeeNumber, kind, match: match);
 
+  /// Checada con PIN cuando el rostro no se reconoce: siempre va a revisión
+  /// de RH con la foto tomada en el checador, si la cámara respondió.
+  Future<void> recordPin(
+    PinCheck check,
+    AttendanceKind kind, {
+    Uint8List? photo,
+  }) => _record(check.employeeNumber, kind, pin: check, photo: photo);
+
   Future<void> _record(
     String number,
     AttendanceKind kind, {
     FaceMatch? match,
+    PinCheck? pin,
+    Uint8List? photo,
   }) async {
-    if (match == null) authorizeRecord();
+    if (match == null && pin == null) authorizeRecord();
+    if (photo != null && photoCipher == null) {
+      throw StateError('No hay cifrado disponible para la foto.');
+    }
     final db = await database.open();
     await db.transaction((txn) async {
-      if (match == null) {
+      if (pin != null) {
+        pin.claim(_clock().toUtc());
+      } else if (match == null) {
         authorizeRecord();
       } else {
         match.claim(_clock().toUtc());
@@ -234,17 +259,38 @@ class AttendanceStore {
                 toleranceMinutes: department['tolerance_minutes'] as int,
               ),
       );
+      final note = pin == null
+          ? issue
+          : [
+              'Checada con PIN: no se reconoció el rostro.',
+              if (photo == null) 'Sin foto: la cámara no respondió.',
+              ?issue,
+            ].join(' ');
       final eventId = await txn.insert('attendance_events', {
         'employee_number': number,
         'kind': kind.value,
         'occurred_at': now.millisecondsSinceEpoch,
-        'capture_method': match == null ? 'manual' : 'facial',
+        'capture_method': match != null
+            ? 'facial'
+            : pin != null
+            ? 'pin'
+            : 'manual',
         'similarity': match?.score,
         'identity_model': match == null ? null : FaceEngine.modelId,
         // Sin prueba de vida hasta integrar un modelo antisuplantación.
         'liveness_method': match == null ? null : 'none',
-        'schedule_note': issue,
+        'schedule_note': note,
       });
+      if (photo != null) {
+        await txn.insert('attendance_photos', {
+          'event_id': eventId,
+          'encrypted_jpeg': await photoCipher!.seal(
+            photo,
+            attendancePhotoContext(eventId),
+          ),
+          'captured_at': now.millisecondsSinceEpoch,
+        });
+      }
       // Solo lo que sale del horario llega a RH; las manuales siempre se revisan.
       if (match != null && issue == null) {
         await txn.insert('attendance_reviews', {

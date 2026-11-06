@@ -24,7 +24,7 @@ class LocalDatabase {
     return selectedFactory.openDatabase(
       filePath ?? path.join(await selectedFactory.getDatabasesPath(), name),
       options: OpenDatabaseOptions(
-        version: 14,
+        version: 15,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
           await _createDepartments(db);
@@ -48,6 +48,7 @@ class LocalDatabase {
           await _createConsentRecords(db);
           await _createFaceTemplates(db);
           await _createPayroll(db);
+          await _createPinFallback(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -124,6 +125,9 @@ class LocalDatabase {
               'ALTER TABLE employees ADD COLUMN daily_wage_cents INTEGER CHECK(daily_wage_cents IS NULL OR daily_wage_cents BETWEEN 0 AND 100000000)',
             );
             await _createPayroll(db);
+          }
+          if (oldVersion < 15) {
+            await _createPinFallback(db);
           }
           if (oldVersion >= 3 && oldVersion < 5) {
             await db.execute(
@@ -367,6 +371,29 @@ class LocalDatabase {
     await db.execute('''
       CREATE TRIGGER payroll_closures_no_delete BEFORE DELETE ON payroll_closures
       BEGIN SELECT RAISE(ABORT, 'Payroll closures cannot be deleted'); END
+    ''');
+  }
+
+  /// PIN de respaldo por empleado (solo el hash) y foto cifrada de las
+  /// checadas hechas con PIN, para que RH confirme quién checó.
+  static Future<void> _createPinFallback(Database db) async {
+    await db.execute('''
+      CREATE TABLE employee_pins (
+        employee_number TEXT PRIMARY KEY REFERENCES employees(number),
+        salt BLOB NOT NULL,
+        pin_hash BLOB NOT NULL,
+        iterations INTEGER NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE attendance_photos (
+        event_id INTEGER PRIMARY KEY REFERENCES attendance_events(id),
+        encrypted_jpeg BLOB NOT NULL,
+        captured_at INTEGER NOT NULL
+      )
     ''');
   }
 

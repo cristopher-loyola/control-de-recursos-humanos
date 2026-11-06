@@ -233,7 +233,7 @@ class BackupSnapshot {
       final similarity = row['similarity'];
       final model = row['identity_model'];
       final liveness = row['liveness_method'];
-      if (method != 'manual' && method != 'facial' ||
+      if (method != 'manual' && method != 'facial' && method != 'pin' ||
           method == 'facial' &&
               (similarity is! num ||
                   !similarity.isFinite ||
