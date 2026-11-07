@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { AccountsController } from './accounts/accounts.controller.js';
 import { AuditController } from './audit/audit.controller.js';
 import { AuthModule } from './auth/auth.module.js';
+import { ReviewsController } from './attendance/reviews.controller.js';
 import { BiometricBox } from './biometrics/biometric-box.js';
 import { BiometricsController } from './biometrics/biometrics.controller.js';
 import { DatabaseModule } from './database/database.module.js';
@@ -14,6 +15,8 @@ import { DeviceSync } from './device/device-sync.js';
 import { EmployeesController } from './employees/employees.controller.js';
 import { validateEnvironment } from './environment.js';
 import { HealthModule } from './health/health.module.js';
+import { HolidaysController } from './holidays/holidays.controller.js';
+import { KpisController } from './kpis/kpis.controller.js';
 import { OrganizationController } from './organization/organization.controller.js';
 import { ServerIdentity } from './server-identity.js';
 import { TabletsController } from './tablets/tablets.controller.js';
@@ -38,6 +41,9 @@ import { TabletsController } from './tablets/tablets.controller.js';
     DepartmentsController,
     TabletsController,
     DeviceController,
+    ReviewsController,
+    HolidaysController,
+    KpisController,
     AuditController,
   ],
   providers: [BiometricBox, ServerIdentity, DeviceSync, DeviceEvents],

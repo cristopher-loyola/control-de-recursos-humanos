@@ -82,6 +82,9 @@ model Company {
   faceTemplates         FaceTemplate[]
   employeePins          EmployeePin[]
   attendancePhotos      AttendancePhoto[]
+  attendanceReviews     AttendanceReview[]
+  holidays              Holiday[]
+  kpiTarget             KpiTarget?
 
   @@map("companies")
 }
@@ -124,6 +127,7 @@ model Department {
 
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   employees Employee[]
+  holidays  Holiday[]
 
   @@unique([companyId, id])
   @@unique([companyId, code])
@@ -215,6 +219,7 @@ model Account {
   auditEntries              AuditEntry[]
   tabletActivations         TabletActivation[]
   faceTemplates             FaceTemplate[]
+  attendanceReviews         AttendanceReview[]
 
   @@unique([companyId, id])
   @@unique([companyId, email])
@@ -431,6 +436,7 @@ model AttendanceEvent {
   faceTemplate FaceTemplate?          @relation(fields: [companyId, faceTemplateId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
   corrections  AttendanceCorrection[]
   photo        AttendancePhoto?
+  review       AttendanceReview?
 
   @@unique([companyId, id])
   @@unique([companyId, tabletId, sequence])
@@ -546,4 +552,61 @@ model AuditEntry {
   @@index([companyId, actorAccountId])
   @@index([companyId, actorTabletId])
   @@map("audit_entries")
+}
+
+enum ReviewDecision {
+  APPROVED
+  REJECTED
+}
+
+// Decisión de RH sobre una checada marcada para revisión. Una por checada; no
+// se edita ni se borra. Una checada rechazada no cuenta en asistencia ni KPIs.
+model AttendanceReview {
+  id                String         @id @default(uuid()) @db.Uuid
+  companyId         String         @map("company_id") @db.Uuid
+  eventId           String         @map("event_id") @db.Uuid
+  decision          ReviewDecision
+  reviewerAccountId String         @map("reviewer_account_id") @db.Uuid
+  reason            String         @db.Text
+  reviewedAt        DateTime       @default(now()) @map("reviewed_at") @db.Timestamptz(6)
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  event    AttendanceEvent @relation(fields: [companyId, eventId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  reviewer Account         @relation(fields: [companyId, reviewerAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, eventId])
+  @@index([companyId, reviewerAccountId])
+  @@map("attendance_reviews")
+}
+
+// Día que no cuenta como laborable. Sin departamento aplica a toda la empresa.
+model Holiday {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  day          DateTime @db.Date
+  name         String   @db.VarChar(80)
+  departmentId String?  @map("department_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  department Department? @relation(fields: [companyId, departmentId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, day])
+  @@index([companyId, departmentId])
+  @@map("holidays")
+}
+
+// Metas de los KPIs de empleado, una fila por empresa (porcentajes enteros).
+model KpiTarget {
+  companyId       String   @id @map("company_id") @db.Uuid
+  attendanceMin   Int      @default(95) @map("attendance_min")
+  punctualityMin  Int      @default(90) @map("punctuality_min")
+  bradfordWarning Int      @default(51) @map("bradford_warning")
+  bradfordAlert   Int      @default(201) @map("bradford_alert")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("kpi_targets")
 }
