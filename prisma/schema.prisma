@@ -1,0 +1,549 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  TERMINATED
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum TabletStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum AttendanceEventType {
+  ENTRY
+  EXIT
+  MEAL_START
+  MEAL_END
+}
+
+enum AttendanceCaptureMethod {
+  FACIAL
+  MANUAL_BACKUP
+  PIN
+}
+
+enum AttendanceCorrectionAction {
+  REPLACE
+  VOID
+}
+
+enum AuditActorType {
+  ACCOUNT
+  TABLET
+  SYSTEM
+}
+
+enum SessionStage {
+  MFA_PENDING
+  ACTIVE
+}
+
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(160)
+  slug      String   @unique @db.VarChar(80)
+  timeZone  String   @default("America/Mexico_City") @map("time_zone") @db.VarChar(80)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  branches              Branch[]
+  departments           Department[]
+  positions             Position[]
+  employees             Employee[]
+  accounts              Account[]
+  sessions              Session[]
+  roles                 Role[]
+  accountRoles          AccountRole[]
+  rolePermissions       RolePermission[]
+  tablets               Tablet[]
+  deviceKeys            DeviceKey[]
+  biometricConsents     BiometricConsent[]
+  attendanceEvents      AttendanceEvent[]
+  attendanceCorrections AttendanceCorrection[]
+  auditEntries          AuditEntry[]
+  tabletActivations     TabletActivation[]
+  faceTemplates         FaceTemplate[]
+  employeePins          EmployeePin[]
+  attendancePhotos      AttendancePhoto[]
+
+  @@map("companies")
+}
+
+model Branch {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  code      String   @db.VarChar(40)
+  name      String   @db.VarChar(160)
+  timeZone  String?  @map("time_zone") @db.VarChar(80)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employees        Employee[]
+  tablets          Tablet[]
+  attendanceEvents AttendanceEvent[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, code])
+  @@map("branches")
+}
+
+// Horario en minutos desde la medianoche; si la salida es menor que la entrada,
+// el turno cruza la medianoche. work_days es una máscara: bit 0 = lunes.
+model Department {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  code             String   @db.VarChar(40)
+  name             String   @db.VarChar(160)
+  entryMinutes     Int      @default(540) @map("entry_minutes")
+  exitMinutes      Int      @default(1080) @map("exit_minutes")
+  toleranceMinutes Int      @default(10) @map("tolerance_minutes")
+  workDays         Int      @default(31) @map("work_days")
+  dailyWageCents   Int?     @map("daily_wage_cents")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employees Employee[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, code])
+  @@map("departments")
+}
+
+model Position {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  code      String   @db.VarChar(40)
+  name      String   @db.VarChar(160)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employees Employee[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, code])
+  @@map("positions")
+}
+
+model Employee {
+  id                     String           @id @default(uuid()) @db.Uuid
+  companyId              String           @map("company_id") @db.Uuid
+  branchId               String           @map("branch_id") @db.Uuid
+  departmentId           String?          @map("department_id") @db.Uuid
+  positionId             String?          @map("position_id") @db.Uuid
+  employeeNumber         String           @map("employee_number") @db.VarChar(40)
+  givenNames             String           @map("given_names") @db.VarChar(160)
+  familyNames            String           @map("family_names") @db.VarChar(160)
+  hiredOn                DateTime         @map("hired_on") @db.Date
+  employmentStatus       EmploymentStatus @default(ACTIVE) @map("employment_status")
+  terminationEffectiveOn DateTime?        @map("termination_effective_on") @db.Date
+  terminationReason      String?          @map("termination_reason") @db.Text
+  terminationByAccountId String?          @map("termination_by_account_id") @db.Uuid
+  dailyWageCents         Int?             @map("daily_wage_cents")
+  createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  branch                Branch                 @relation(fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  department            Department?            @relation(fields: [companyId, departmentId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  position              Position?              @relation(fields: [companyId, positionId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  terminationBy         Account?               @relation("EmploymentTerminationActor", fields: [companyId, terminationByAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  account               Account?               @relation("EmployeeAccount")
+  biometricConsents     BiometricConsent[]
+  attendanceEvents      AttendanceEvent[]
+  attendanceCorrections AttendanceCorrection[] @relation("CorrectedAttendanceEmployee")
+  faceTemplates         FaceTemplate[]
+  pin                   EmployeePin?
+
+  @@unique([companyId, id])
+  @@unique([companyId, employeeNumber])
+  @@index([companyId, branchId, employmentStatus])
+  @@index([companyId, departmentId])
+  @@index([companyId, positionId])
+  @@index([companyId, terminationByAccountId])
+  @@map("employees")
+}
+
+model Account {
+  id               String        @id @default(uuid()) @db.Uuid
+  companyId        String        @map("company_id") @db.Uuid
+  employeeId       String?       @map("employee_id") @db.Uuid
+  email            String        @db.VarChar(254)
+  passwordHash     String        @map("password_hash") @db.Text
+  status           AccountStatus @default(ACTIVE)
+  disabledAt       DateTime?     @map("disabled_at") @db.Timestamptz(6)
+  disabledReason   String?       @map("disabled_reason") @db.Text
+  // Secreto TOTP cifrado con AES-256-GCM; la llave vive fuera de la base de datos.
+  totpSecret       Bytes?        @map("totp_secret") @db.ByteA
+  totpEnabledAt    DateTime?     @map("totp_enabled_at") @db.Timestamptz(6)
+  totpLastStep     BigInt?       @map("totp_last_step")
+  failedLoginCount Int           @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?     @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt      DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company                   Company                @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employee                  Employee?              @relation("EmployeeAccount", fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  sessions                  Session[]
+  roles                     AccountRole[]
+  terminations              Employee[]             @relation("EmploymentTerminationActor")
+  recordedBiometricConsents BiometricConsent[]
+  attendanceCorrections     AttendanceCorrection[]
+  auditEntries              AuditEntry[]
+  tabletActivations         TabletActivation[]
+  faceTemplates             FaceTemplate[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, email])
+  @@unique([companyId, employeeId])
+  @@map("accounts")
+}
+
+// Solo se guarda el hash del token; la sesión no sirve fuera de su empresa.
+model Session {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  accountId      String       @map("account_id") @db.Uuid
+  tokenHash      String       @unique @map("token_hash") @db.Char(64)
+  stage          SessionStage
+  mfaFailedCount Int          @default(0) @map("mfa_failed_count")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt     DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt      DateTime     @map("expires_at") @db.Timestamptz(6)
+  revokedAt      DateTime?    @map("revoked_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  account Account @relation(fields: [companyId, accountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([companyId, accountId])
+  @@map("sessions")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  code        String   @db.VarChar(60)
+  name        String   @db.VarChar(120)
+  description String?  @db.Text
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  accounts    AccountRole[]
+  permissions RolePermission[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, code])
+  @@map("roles")
+}
+
+// Catálogo compartido de acciones. Las asignaciones de permisos pertenecen a una empresa.
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique @db.VarChar(120)
+  description String           @db.VarChar(250)
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model AccountRole {
+  companyId String   @map("company_id") @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  account Account @relation(fields: [companyId, accountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  role    Role    @relation(fields: [companyId, roleId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([companyId, accountId, roleId])
+  @@index([companyId, roleId])
+  @@map("account_roles")
+}
+
+model RolePermission {
+  companyId    String   @map("company_id") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  role       Role       @relation(fields: [companyId, roleId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([companyId, roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model Tablet {
+  id                 String       @id @default(uuid()) @db.Uuid
+  companyId          String       @map("company_id") @db.Uuid
+  branchId           String       @map("branch_id") @db.Uuid
+  code               String       @db.VarChar(60)
+  name               String       @db.VarChar(160)
+  status             TabletStatus @default(PENDING)
+  // Hash SHA-256 del token del dispositivo; el token solo lo conoce la tablet.
+  tokenHash          String?      @unique @map("token_hash") @db.Char(64)
+  lastSynchronizedAt DateTime?    @map("last_synchronized_at") @db.Timestamptz(6)
+  lastSeenAt         DateTime?    @map("last_seen_at") @db.Timestamptz(6)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  branch           Branch             @relation(fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  keys             DeviceKey[]
+  attendanceEvents AttendanceEvent[]
+  auditEntries     AuditEntry[]
+  activations      TabletActivation[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, code])
+  @@index([companyId, branchId])
+  @@map("tablets")
+}
+
+// Código de un solo uso para vincular una tablet. Solo se guarda su hash.
+model TabletActivation {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  tabletId           String    @map("tablet_id") @db.Uuid
+  codeHash           String    @map("code_hash") @db.Char(64)
+  createdByAccountId String?   @map("created_by_account_id") @db.Uuid
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt             DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tablet    Tablet   @relation(fields: [companyId, tabletId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdBy Account? @relation(fields: [companyId, createdByAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, codeHash])
+  @@index([companyId, tabletId])
+  @@index([companyId, createdByAccountId])
+  @@map("tablet_activations")
+}
+
+// Solo claves públicas: la clave privada permanece en Android Keystore.
+model DeviceKey {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  tabletId     String    @map("tablet_id") @db.Uuid
+  algorithm    String    @db.VarChar(40)
+  publicKeyPem String    @map("public_key_pem") @db.Text
+  fingerprint  String    @db.Char(64)
+  activatedAt  DateTime  @default(now()) @map("activated_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tablet           Tablet            @relation(fields: [companyId, tabletId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  attendanceEvents AttendanceEvent[]
+
+  @@unique([companyId, tabletId, id])
+  @@unique([companyId, fingerprint])
+  @@map("device_keys")
+}
+
+model BiometricConsent {
+  id                      String    @id @default(uuid()) @db.Uuid
+  companyId               String    @map("company_id") @db.Uuid
+  employeeId              String    @map("employee_id") @db.Uuid
+  recordedByAccountId     String    @map("recorded_by_account_id") @db.Uuid
+  policyVersion           String    @map("policy_version") @db.VarChar(60)
+  signedDocumentObjectKey String    @map("signed_document_object_key") @db.Text
+  grantedAt               DateTime  @map("granted_at") @db.Timestamptz(6)
+  revokedAt               DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employee      Employee       @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedBy    Account        @relation(fields: [companyId, recordedByAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  faceTemplates FaceTemplate[]
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId, grantedAt])
+  @@index([companyId, recordedByAccountId])
+  @@map("biometric_consents")
+}
+
+// Eventos originales. La inmutabilidad se reforzará con permisos y triggers SQL.
+model AttendanceEvent {
+  // UUID generado en la tablet y reutilizado en cada intento de sincronización.
+  id                String                  @id @db.Uuid
+  companyId         String                  @map("company_id") @db.Uuid
+  branchId          String                  @map("branch_id") @db.Uuid
+  tabletId          String                  @map("tablet_id") @db.Uuid
+  deviceKeyId       String                  @map("device_key_id") @db.Uuid
+  employeeId        String?                 @map("employee_id") @db.Uuid
+  eventType         AttendanceEventType     @map("event_type")
+  captureMethod     AttendanceCaptureMethod @map("capture_method")
+  deviceOccurredAt  DateTime                @map("device_occurred_at") @db.Timestamptz(6)
+  serverReceivedAt  DateTime                @default(now()) @map("server_received_at") @db.Timestamptz(6)
+  sequence          BigInt
+  monotonicTimeMs   BigInt?                 @map("monotonic_time_ms")
+  bootId            String?                 @map("boot_id") @db.Uuid
+  latitude          Decimal?                @db.Decimal(10, 7)
+  longitude         Decimal?                @db.Decimal(10, 7)
+  photoObjectKey    String?                 @map("photo_object_key") @db.Text
+  photoSha256       String?                 @map("photo_sha256") @db.Char(64)
+  faceSimilarity    Float?                  @map("face_similarity")
+  livenessScore     Float?                  @map("liveness_score")
+  requiresReview    Boolean                 @default(true) @map("requires_review")
+  // Motivos por los que el servidor dejó la checada para revisión de RH.
+  reviewReasons     String[]                @default([]) @map("review_reasons")
+  scheduleNote      String?                 @map("schedule_note") @db.Text
+  faceTemplateId    String?                 @map("face_template_id") @db.Uuid
+  previousEventHash String?                 @map("previous_event_hash") @db.Char(64)
+  eventHash         String                  @map("event_hash") @db.Char(64)
+  signedPayload     Bytes                   @map("signed_payload") @db.ByteA
+  signature         Bytes                   @db.ByteA
+
+  company      Company                @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  branch       Branch                 @relation(fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  tablet       Tablet                 @relation(fields: [companyId, tabletId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  deviceKey    DeviceKey              @relation(fields: [companyId, tabletId, deviceKeyId], references: [companyId, tabletId, id], onDelete: Restrict, onUpdate: Restrict)
+  employee     Employee?              @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  faceTemplate FaceTemplate?          @relation(fields: [companyId, faceTemplateId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  corrections  AttendanceCorrection[]
+  photo        AttendancePhoto?
+
+  @@unique([companyId, id])
+  @@unique([companyId, tabletId, sequence])
+  @@index([companyId, employeeId, deviceOccurredAt])
+  @@index([companyId, branchId, deviceOccurredAt])
+  @@index([companyId, requiresReview, serverReceivedAt])
+  @@index([companyId, tabletId, deviceKeyId])
+  @@index([companyId, faceTemplateId])
+  @@map("attendance_events")
+}
+
+// Plantilla SFace cifrada con AES-256-GCM; la llave vive fuera de la base.
+// Solo una vigente por empleado (índice parcial en la migración).
+model FaceTemplate {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  employeeId         String    @map("employee_id") @db.Uuid
+  consentId          String    @map("consent_id") @db.Uuid
+  modelId            String    @map("model_id") @db.VarChar(80)
+  sampleCount        Int       @map("sample_count")
+  encryptedSamples   Bytes     @map("encrypted_samples") @db.ByteA
+  createdByAccountId String    @map("created_by_account_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employee         Employee          @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  consent          BiometricConsent  @relation(fields: [companyId, consentId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdBy        Account           @relation(fields: [companyId, createdByAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  attendanceEvents AttendanceEvent[]
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId])
+  @@index([companyId, consentId])
+  @@index([companyId, createdByAccountId])
+  @@map("face_templates")
+}
+
+// PIN de respaldo: PBKDF2-HMAC-SHA256, mismo formato que verifica la tablet sin red.
+model EmployeePin {
+  companyId  String   @map("company_id") @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  salt       Bytes    @db.ByteA
+  pinHash    Bytes    @map("pin_hash") @db.ByteA
+  iterations Int
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([companyId, employeeId])
+  @@map("employee_pins")
+}
+
+// Foto de la checada con PIN, cifrada. Evidencia: no se edita ni se borra.
+model AttendancePhoto {
+  eventId       String   @id @map("event_id") @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  sha256        String   @db.Char(64)
+  encryptedJpeg Bytes    @map("encrypted_jpeg") @db.ByteA
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  event   AttendanceEvent @relation(fields: [companyId, eventId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, eventId])
+  @@map("attendance_photos")
+}
+
+// Cada corrección conserva el evento original; no se modifica su firma ni evidencia.
+model AttendanceCorrection {
+  id                  String                     @id @default(uuid()) @db.Uuid
+  companyId           String                     @map("company_id") @db.Uuid
+  originalEventId     String                     @map("original_event_id") @db.Uuid
+  authorAccountId     String                     @map("author_account_id") @db.Uuid
+  action              AttendanceCorrectionAction
+  correctedEmployeeId String?                    @map("corrected_employee_id") @db.Uuid
+  correctedEventType  AttendanceEventType?       @map("corrected_event_type")
+  correctedOccurredAt DateTime?                  @map("corrected_occurred_at") @db.Timestamptz(6)
+  reason              String                     @db.Text
+  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  originalEvent     AttendanceEvent @relation(fields: [companyId, originalEventId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  author            Account         @relation(fields: [companyId, authorAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  correctedEmployee Employee?       @relation("CorrectedAttendanceEmployee", fields: [companyId, correctedEmployeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, originalEventId, createdAt])
+  @@index([companyId, authorAccountId])
+  @@index([companyId, correctedEmployeeId])
+  @@map("attendance_corrections")
+}
+
+model AuditEntry {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @map("company_id") @db.Uuid
+  actorType      AuditActorType @map("actor_type")
+  actorAccountId String?        @map("actor_account_id") @db.Uuid
+  actorTabletId  String?        @map("actor_tablet_id") @db.Uuid
+  action         String         @db.VarChar(120)
+  entityType     String         @map("entity_type") @db.VarChar(80)
+  entityId       String         @map("entity_id") @db.VarChar(200)
+  details        Json?
+  occurredAt     DateTime       @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actorAccount Account? @relation(fields: [companyId, actorAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  actorTablet  Tablet?  @relation(fields: [companyId, actorTabletId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([companyId, occurredAt])
+  @@index([companyId, entityType, entityId])
+  @@index([companyId, actorAccountId])
+  @@index([companyId, actorTabletId])
+  @@map("audit_entries")
+}

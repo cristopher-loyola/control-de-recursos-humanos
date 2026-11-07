@@ -1,14 +1,14 @@
 node_modules/
-apps/api/src/generated/prisma/
+src/generated/prisma/
 *.tsbuildinfo
 .pnpm-store/
 dist/
 coverage/
-.angular/
 .env
 .env.*
 !.env.example
 *.log
 .DS_Store
 Thumbs.db
-
+# Llave privada del servidor: nunca al repositorio.
+deploy/certs/
