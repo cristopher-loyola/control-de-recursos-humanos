@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Solo la carpeta temporal de archivos por compartir queda expuesta a otras apps. -->
-<paths>
-    <cache-path name="compartidos" path="compartidos/" />
-</paths>

@@ -18,5 +18,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # Servidor de la oficina: las tablets se conectan por HTTPS al puerto 443.
+  #   docker compose --profile servidor up -d --build
+  api:
+    profiles: [servidor]
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      # Se validan al arrancar el API. Contraseñas sin caracteres especiales de URL.
+      DATABASE_OWNER_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      DATABASE_URL: postgresql://${API_DB_USER:-accesos_api}:${API_DB_PASSWORD:-}@postgres:5432/${POSTGRES_DB}?schema=public
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+      BIOMETRIC_ENCRYPTION_KEY: ${BIOMETRIC_ENCRYPTION_KEY:-}
+      TLS_CERT_FILE: /certs/servidor.crt
+      TLS_KEY_FILE: /certs/servidor.key
+    volumes:
+      - ./deploy/certs:/certs:ro
+    ports:
+      - "${API_PUBLIC_PORT:-443}:3000"
+
 volumes:
   postgres_data:

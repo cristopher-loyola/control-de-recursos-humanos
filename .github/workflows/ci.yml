@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  node:
-    name: NestJS y Angular
+  api:
+    name: API NestJS
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -32,11 +32,11 @@ jobs:
     env:
       NODE_ENV: test
       API_PORT: '3000'
-      WEB_ORIGIN: http://localhost:4200
-      # Credenciales y llave exclusivas de la base efímera de CI.
+      # Credenciales y llaves exclusivas de la base efímera de CI.
       DATABASE_OWNER_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
       DATABASE_URL: postgresql://accesos_api:solo_para_ci_0123456789@localhost:5432/ci?schema=public
       TOTP_ENCRYPTION_KEY: Y2ktc29sby1wcnVlYmFzLTMyLWJ5dGVzLWV4YWN0b3M=
+      BIOMETRIC_ENCRYPTION_KEY: Y2ktYmlvbWV0cmlhLXBydWViYXMtMzItYnl0ZXMtb2s=
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -48,36 +48,11 @@ jobs:
           node-version: 24.22.2
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm peers check -r
-      - run: pnpm --dir apps/api exec prisma validate
-      - run: pnpm --dir apps/api exec prisma generate
-      - run: pnpm --dir apps/api run lint
-      - run: pnpm --dir apps/api run test
-      - run: pnpm --dir apps/api run db:prepare
-      - run: pnpm --dir apps/api run test:e2e
-      - run: pnpm --dir apps/api run build
-      - run: pnpm --dir apps/web run test --watch=false
-      - run: pnpm --dir apps/web run build
-
-  flutter:
-    name: Flutter
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: apps/kiosk
-    steps:
-      - uses: actions/checkout@v6
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: 3.47.8
-          channel: stable
-          cache: true
-      - run: sudo apt-get update
-        working-directory: .
-      - run: sudo apt-get install -y libsqlite3-0 libsqlite3-dev
-        working-directory: .
-      - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed lib test
-      - run: flutter analyze
-      - run: flutter test
+      - run: pnpm peers check
+      - run: pnpm exec prisma validate
+      - run: pnpm exec prisma generate
+      - run: pnpm run lint
+      - run: pnpm run test
+      - run: pnpm run db:prepare
+      - run: pnpm run test:e2e
+      - run: pnpm run build
