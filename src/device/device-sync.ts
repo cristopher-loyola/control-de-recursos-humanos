@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { DeviceContext } from '../auth/access.js';
+import { reviewStatus } from '../attendance/review-status.js';
 import { BiometricBox } from '../biometrics/biometric-box.js';
 import { TenantDatabase } from '../database/tenant-database.js';
 
@@ -90,8 +91,22 @@ export class DeviceSync {
           eventType: true,
           captureMethod: true,
           deviceOccurredAt: true,
+          requiresReview: true,
+          review: { select: { decision: true, reason: true } },
         },
         orderBy: { deviceOccurredAt: 'asc' },
+      });
+      // Festivos del año en curso y el siguiente: la tablet los usa en su tablero.
+      const year = new Date().getUTCFullYear();
+      const holidays = await tx.holiday.findMany({
+        where: {
+          day: {
+            gte: new Date(`${year}-01-01T00:00:00Z`),
+            lte: new Date(`${year + 1}-12-31T00:00:00Z`),
+          },
+        },
+        select: { id: true, day: true, name: true, departmentId: true },
+        orderBy: { day: 'asc' },
       });
       const last = await tx.attendanceEvent.findFirst({
         where: { tabletId: device.tabletId },
@@ -146,6 +161,14 @@ export class DeviceSync {
           eventType: event.eventType,
           captureMethod: event.captureMethod,
           occurredAt: event.deviceOccurredAt,
+          status: reviewStatus(event.requiresReview, event.review?.decision),
+          reviewReason: event.review?.reason ?? null,
+        })),
+        holidays: holidays.map((holiday) => ({
+          id: holiday.id,
+          day: holiday.day.toISOString().slice(0, 10),
+          name: holiday.name,
+          departmentId: holiday.departmentId,
         })),
         lastSequence: last ? Number(last.sequence) : 0,
         lastEventHash: last?.eventHash ?? null,

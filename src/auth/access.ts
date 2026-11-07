@@ -17,6 +17,10 @@ export const PERMISSIONS = [
   'departments.read',
   'departments.manage',
   'biometrics.manage',
+  'attendance.review',
+  'holidays.manage',
+  'kpis.read',
+  'kpis.manage',
 ] as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[number];

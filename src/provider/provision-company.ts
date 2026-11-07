@@ -22,6 +22,10 @@ export const SYSTEM_ROLES: Record<
       'tablets.read',
       'tablets.manage',
       'departments.read',
+      'attendance.review',
+      'holidays.manage',
+      'kpis.read',
+      'kpis.manage',
     ],
   },
   RH: {
@@ -37,6 +41,10 @@ export const SYSTEM_ROLES: Record<
       'departments.read',
       'departments.manage',
       'biometrics.manage',
+      'attendance.review',
+      'holidays.manage',
+      'kpis.read',
+      'kpis.manage',
     ],
   },
   EMPLOYEE: {
