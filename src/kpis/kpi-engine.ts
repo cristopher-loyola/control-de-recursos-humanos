@@ -273,7 +273,11 @@ export function computeKpis(
     }
   }
   const scheduledMinutes = schedule ? scheduled * scheduledLength(schedule) : 0;
-  const periodEvents = counted.filter((event) => inPeriod(local(event.at).day));
+  // Incluye las rechazadas: una checada con PIN mide que el rostro no se
+  // reconoció, aunque RH la haya rechazado después.
+  const periodEvents = input.events.filter((event) =>
+    inPeriod(local(event.at).day),
+  );
   const ratio = (a: number, b: number) => (b === 0 ? null : a / b);
 
   return {

@@ -164,7 +164,10 @@ describe('Asistencia, puntualidad y faltas', () => {
   it('una checada rechazada por RH no cuenta; una pendiente sí, y se reporta', () => {
     const { values } = computeKpis(
       employee([
-        ev('ENTRY', '2026-11-02', '09:00', { status: 'rejected' }),
+        ev('ENTRY', '2026-11-02', '09:00', {
+          status: 'rejected',
+          captureMethod: 'PIN',
+        }),
         ev('ENTRY', '2026-11-03', '09:00', {
           status: 'pending',
           captureMethod: 'PIN',
@@ -177,7 +180,7 @@ describe('Asistencia, puntualidad y faltas', () => {
       attendedDays: 1,
       absences: 4,
       pendingReview: 1,
-      pinChecks: 1,
+      pinChecks: 2,
     });
   });
 
