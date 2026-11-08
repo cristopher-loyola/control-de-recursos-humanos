@@ -33,7 +33,8 @@ const INVALID_LOGIN = 'Empresa, correo o contraseña incorrectos.';
 
 export interface LoginResult {
   token: string;
-  nextStep: 'MFA_SETUP' | 'MFA_CODE';
+  /** DONE: sesión activa sin doble factor (solo desarrollo, AUTH_REQUIRE_MFA=false). */
+  nextStep: 'MFA_SETUP' | 'MFA_CODE' | 'DONE';
 }
 
 type LoginOutcome =
@@ -42,12 +43,15 @@ type LoginOutcome =
 @Injectable()
 export class AuthService {
   private readonly box: SecretBox;
+  private readonly requireMfa: boolean;
 
   constructor(
     @Inject(TenantDatabase) private readonly db: TenantDatabase,
     @Inject(ConfigService) config: ConfigService,
   ) {
     this.box = new SecretBox(config.getOrThrow<string>('TOTP_ENCRYPTION_KEY'));
+    // La validación del entorno impide apagarlo en producción.
+    this.requireMfa = config.get<boolean>('AUTH_REQUIRE_MFA') ?? true;
   }
 
   async login(
@@ -109,10 +113,28 @@ export class AuthService {
           companyId,
           accountId: account.id,
           tokenHash: hashSessionToken(token),
-          stage: 'MFA_PENDING',
-          expiresAt: new Date(now.getTime() + MFA_WINDOW_MS),
+          stage: this.requireMfa ? 'MFA_PENDING' : 'ACTIVE',
+          expiresAt: new Date(
+            now.getTime() +
+              (this.requireMfa ? MFA_WINDOW_MS : SESSION_LIFETIME_MS),
+          ),
         },
       });
+      if (!this.requireMfa) {
+        await tx.account.update({
+          where: { id: account.id },
+          data: { lastLoginAt: now },
+        });
+        await recordAudit(tx, {
+          companyId,
+          actorAccountId: account.id,
+          action: 'auth.login',
+          entityType: 'account',
+          entityId: account.id,
+          details: { mfa: 'desactivado en desarrollo' },
+        });
+        return { kind: 'ok', result: { token, nextStep: 'DONE' } };
+      }
       return {
         kind: 'ok',
         result: {

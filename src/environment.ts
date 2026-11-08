@@ -54,8 +54,25 @@ export function validateEnvironment(config: Record<string, unknown>) {
     DATABASE_URL: databaseUrl,
     TOTP_ENCRYPTION_KEY: totpKey,
     BIOMETRIC_ENCRYPTION_KEY: base64Key(config, 'BIOMETRIC_ENCRYPTION_KEY'),
+    AUTH_REQUIRE_MFA: requireMfa(config, nodeEnv),
     ...tlsFiles(config),
   };
+}
+
+/**
+ * Doble factor obligatorio salvo `AUTH_REQUIRE_MFA=false` en desarrollo o
+ * pruebas; en producción no se puede apagar.
+ */
+function requireMfa(config: Record<string, unknown>, nodeEnv: string): boolean {
+  const value = config.AUTH_REQUIRE_MFA;
+  if (value === undefined || value === '' || value === 'true') return true;
+  if (value !== 'false') {
+    throw new Error('AUTH_REQUIRE_MFA debe ser true o false.');
+  }
+  if (nodeEnv === 'production') {
+    throw new Error('AUTH_REQUIRE_MFA no se puede desactivar en producción.');
+  }
+  return false;
 }
 
 function base64Key(config: Record<string, unknown>, key: string): string {
