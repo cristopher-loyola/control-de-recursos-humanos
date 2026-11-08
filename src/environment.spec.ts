@@ -14,6 +14,7 @@ describe('Validación del entorno', () => {
     expect(validateEnvironment(validEnvironment)).toEqual({
       ...validEnvironment,
       API_PORT: 3000,
+      AUTH_REQUIRE_MFA: true,
     });
   });
 
@@ -78,6 +79,25 @@ describe('Validación del entorno', () => {
       TLS_CERT_FILE: '/certs/server.crt',
       TLS_KEY_FILE: '/certs/server.key',
     });
+  });
+
+  it('el doble factor solo se apaga fuera de producción', () => {
+    expect(validateEnvironment(validEnvironment)).toMatchObject({
+      AUTH_REQUIRE_MFA: true,
+    });
+    expect(
+      validateEnvironment({ ...validEnvironment, AUTH_REQUIRE_MFA: 'false' }),
+    ).toMatchObject({ AUTH_REQUIRE_MFA: false });
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        NODE_ENV: 'production',
+        AUTH_REQUIRE_MFA: 'false',
+      }),
+    ).toThrow('producción');
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, AUTH_REQUIRE_MFA: 'no' }),
+    ).toThrow('AUTH_REQUIRE_MFA');
   });
 
   it('rechaza el certificado TLS sin su llave', () => {
