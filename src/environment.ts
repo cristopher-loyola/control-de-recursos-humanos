@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 function requiredString(config: Record<string, unknown>, key: string): string {
   const value = config[key];
   if (typeof value !== 'string' || value.trim() === '') {
@@ -56,6 +59,7 @@ export function validateEnvironment(config: Record<string, unknown>) {
     BIOMETRIC_ENCRYPTION_KEY: base64Key(config, 'BIOMETRIC_ENCRYPTION_KEY'),
     AUTH_REQUIRE_MFA: requireMfa(config, nodeEnv),
     ADMIN_ORIGINS: adminOrigins(config, nodeEnv),
+    ...adminPanel(config),
     ...tlsFiles(config),
   };
 }
@@ -118,6 +122,18 @@ function adminOrigins(
         }),
     ),
   ];
+}
+
+/** Carpeta del build del panel para servirlo junto al API (opcional). */
+function adminPanel(config: Record<string, unknown>) {
+  const value = config.ADMIN_PANEL_DIR;
+  if (value === undefined || value === null || value === '') return {};
+  if (typeof value !== 'string' || !existsSync(join(value, 'index.html'))) {
+    throw new Error(
+      'ADMIN_PANEL_DIR debe ser la carpeta del build del panel (con index.html).',
+    );
+  }
+  return { ADMIN_PANEL_DIR: value };
 }
 
 function base64Key(config: Record<string, unknown>, key: string): string {
