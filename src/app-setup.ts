@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -38,7 +38,7 @@ export function servePanel(app: INestApplication, dir: string): void {
     index: false,
     maxAge: 0,
   });
-  const index = join(dir, 'index.html');
+  const index = resolve(join(dir, 'index.html'));
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (
       req.method !== 'GET' ||
