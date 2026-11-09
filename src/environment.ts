@@ -55,6 +55,7 @@ export function validateEnvironment(config: Record<string, unknown>) {
     TOTP_ENCRYPTION_KEY: totpKey,
     BIOMETRIC_ENCRYPTION_KEY: base64Key(config, 'BIOMETRIC_ENCRYPTION_KEY'),
     AUTH_REQUIRE_MFA: requireMfa(config, nodeEnv),
+    ADMIN_ORIGINS: adminOrigins(config, nodeEnv),
     ...tlsFiles(config),
   };
 }
@@ -73,6 +74,50 @@ function requireMfa(config: Record<string, unknown>, nodeEnv: string): boolean {
     throw new Error('AUTH_REQUIRE_MFA no se puede desactivar en producción.');
   }
   return false;
+}
+
+/**
+ * Orígenes del panel de administración que pueden llamar al API desde otro
+ * origen (CORS). En producción el panel se sirve en el mismo origen y la
+ * lista suele ir vacía; si se indica, solo con HTTPS.
+ */
+function adminOrigins(
+  config: Record<string, unknown>,
+  nodeEnv: string,
+): string[] {
+  const value = config.ADMIN_ORIGINS;
+  if (value === undefined || value === null || value === '') return [];
+  if (typeof value !== 'string') {
+    throw new Error('ADMIN_ORIGINS debe ser una lista separada por comas.');
+  }
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item !== '')
+        .map((item) => {
+          let url: URL;
+          try {
+            url = new URL(item);
+          } catch {
+            throw new Error(`ADMIN_ORIGINS: ${item} no es una URL válida.`);
+          }
+          if (
+            !['http:', 'https:'].includes(url.protocol) ||
+            url.origin !== item.replace(/\/$/, '')
+          ) {
+            throw new Error(
+              `ADMIN_ORIGINS: ${item} debe ser solo un origen, como https://rh.empresa.mx.`,
+            );
+          }
+          if (nodeEnv === 'production' && url.protocol !== 'https:') {
+            throw new Error('ADMIN_ORIGINS solo admite HTTPS en producción.');
+          }
+          return url.origin;
+        }),
+    ),
+  ];
 }
 
 function base64Key(config: Record<string, unknown>, key: string): string {

@@ -21,6 +21,10 @@ export const PERMISSIONS = [
   'holidays.manage',
   'kpis.read',
   'kpis.manage',
+  'reports.read',
+  'payroll.read',
+  'payroll.manage',
+  'payroll.reopen',
 ] as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[number];

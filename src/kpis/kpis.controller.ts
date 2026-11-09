@@ -10,7 +10,11 @@ import {
   Query,
 } from '@nestjs/common';
 import { recordAudit } from '../audit/record-audit.js';
-import { reviewStatus } from '../attendance/review-status.js';
+import { loadAttendance } from '../attendance/attendance-data.js';
+import type {
+  LoadedAttendance,
+  LoadedEmployee,
+} from '../attendance/attendance-data.js';
 import { localTime } from '../attendance/schedule.js';
 import { CurrentAuth, RequirePermissions } from '../auth/access.js';
 import type { AuthContext } from '../auth/access.js';
@@ -32,20 +36,10 @@ import {
   previousPeriod,
   rateLight,
 } from './kpi-engine.js';
-import type {
-  KpiContext,
-  KpiEmployeeInput,
-  KpiTargets,
-  Period,
-  PeriodKind,
-} from './kpi-engine.js';
+import type { Period, PeriodKind } from './kpi-engine.js';
+import { DEFAULT_TARGETS } from './kpi-targets.js';
 
-export const DEFAULT_TARGETS: KpiTargets = {
-  attendanceMin: 95,
-  punctualityMin: 90,
-  bradfordWarning: 51,
-  bradfordAlert: 201,
-};
+export { DEFAULT_TARGETS };
 
 const SERIES_LENGTH = 6;
 
@@ -64,133 +58,10 @@ function readPeriod(
   return periodFor(value as PeriodKind, day);
 }
 
-interface Loaded {
-  context: KpiContext;
-  targets: KpiTargets;
-  employees: {
-    id: string;
-    employeeNumber: string;
-    name: string;
-    department: { id: string; name: string } | null;
-    input: KpiEmployeeInput;
-  }[];
-}
-
-/** Trae todo lo necesario en pocas consultas y calcula en memoria. */
-async function load(
-  tx: TenantTransaction,
-  companyId: string,
-  from: string,
-  to: string,
-  filter: { employeeId?: string; departmentId?: string | null },
-): Promise<Loaded> {
-  const company = await tx.company.findUniqueOrThrow({
-    where: { id: companyId },
-    select: { timeZone: true, kpiTarget: true },
-  });
-  const employees = await tx.employee.findMany({
-    where: {
-      employmentStatus: 'ACTIVE',
-      ...(filter.employeeId ? { id: filter.employeeId } : {}),
-      ...(filter.departmentId ? { departmentId: filter.departmentId } : {}),
-    },
-    select: {
-      id: true,
-      employeeNumber: true,
-      givenNames: true,
-      familyNames: true,
-      hiredOn: true,
-      department: {
-        select: {
-          id: true,
-          name: true,
-          entryMinutes: true,
-          exitMinutes: true,
-          toleranceMinutes: true,
-          workDays: true,
-        },
-      },
-    },
-    orderBy: [{ familyNames: 'asc' }, { givenNames: 'asc' }],
-  });
-  // Un día de margen a cada lado por la zona horaria.
-  const events = await tx.attendanceEvent.findMany({
-    where: {
-      employeeId: { in: employees.map((employee) => employee.id) },
-      eventType: { in: ['ENTRY', 'EXIT'] },
-      deviceOccurredAt: {
-        gte: new Date(`${addDays(from, -1)}T00:00:00Z`),
-        lt: new Date(`${addDays(to, 1)}T00:00:00Z`),
-      },
-    },
-    select: {
-      employeeId: true,
-      eventType: true,
-      captureMethod: true,
-      deviceOccurredAt: true,
-      requiresReview: true,
-      review: { select: { decision: true } },
-    },
-  });
-  const holidays = await tx.holiday.findMany({
-    where: {
-      day: {
-        gte: new Date(`${from}T00:00:00Z`),
-        lt: new Date(`${to}T00:00:00Z`),
-      },
-    },
-    select: { day: true, departmentId: true },
-  });
-  const byEmployee = new Map<string, KpiEmployeeInput['events']>();
-  for (const event of events) {
-    if (!event.employeeId) continue;
-    const list = byEmployee.get(event.employeeId) ?? [];
-    list.push({
-      type: event.eventType as 'ENTRY' | 'EXIT',
-      at: event.deviceOccurredAt,
-      captureMethod: event.captureMethod,
-      status: reviewStatus(event.requiresReview, event.review?.decision),
-    });
-    byEmployee.set(event.employeeId, list);
-  }
-  return {
-    targets: company.kpiTarget ?? DEFAULT_TARGETS,
-    context: {
-      timeZone: company.timeZone,
-      now: new Date(),
-      holidays: holidays.map((holiday) => ({
-        day: holiday.day.toISOString().slice(0, 10),
-        departmentId: holiday.departmentId,
-      })),
-    },
-    employees: employees.map((employee) => ({
-      id: employee.id,
-      employeeNumber: employee.employeeNumber,
-      name: `${employee.givenNames} ${employee.familyNames}`,
-      department: employee.department && {
-        id: employee.department.id,
-        name: employee.department.name,
-      },
-      input: {
-        departmentId: employee.department?.id ?? null,
-        hiredOn: employee.hiredOn.toISOString().slice(0, 10),
-        events: byEmployee.get(employee.id) ?? [],
-        schedule: employee.department && {
-          departmentName: employee.department.name,
-          entryMinutes: employee.department.entryMinutes,
-          exitMinutes: employee.department.exitMinutes,
-          toleranceMinutes: employee.department.toleranceMinutes,
-          workDays: employee.department.workDays,
-        },
-      },
-    })),
-  };
-}
-
 function row(
-  employee: Loaded['employees'][number],
+  employee: LoadedEmployee,
   period: Period,
-  loaded: Loaded,
+  loaded: LoadedAttendance,
   today: string,
 ) {
   const current = computeKpis(employee.input, period, loaded.context);
@@ -207,7 +78,10 @@ function row(
       id: employee.id,
       employeeNumber: employee.employeeNumber,
       name: employee.name,
-      department: employee.department,
+      department: employee.department && {
+        id: employee.department.id,
+        name: employee.department.name,
+      },
     },
     period,
     values: current.values,
@@ -260,7 +134,7 @@ export class KpisController {
     return this.db.run(auth.companyId, async (tx) => {
       const today = await this.today(tx, auth.companyId);
       const period = readPeriod(kind, anchor, today);
-      const loaded = await load(
+      const loaded = await loadAttendance(
         tx,
         auth.companyId,
         addDays(period.end, -364 - 7),
@@ -298,9 +172,15 @@ export class KpisController {
       const bradfordFrom = addDays(period.end, -364 - 7);
       const from =
         bradfordFrom < periods[0].start ? bradfordFrom : periods[0].start;
-      const loaded = await load(tx, auth.companyId, from, period.end, {
-        employeeId: id,
-      });
+      const loaded = await loadAttendance(
+        tx,
+        auth.companyId,
+        from,
+        period.end,
+        {
+          employeeId: id,
+        },
+      );
       const employee = loaded.employees[0];
       if (!employee)
         throw new NotFoundException(

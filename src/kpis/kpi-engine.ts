@@ -6,7 +6,8 @@
 import type { ReviewStatus } from '../attendance/review-status.js';
 import { lateMinutes, localTime } from '../attendance/schedule.js';
 
-export type PeriodKind = 'week' | 'month' | 'quarter';
+/** range: rango libre del reporte de asistencia (no tiene periodo anterior). */
+export type PeriodKind = 'week' | 'month' | 'quarter' | 'range';
 export type Light = 'ok' | 'warning' | 'alert';
 
 export interface Period {
@@ -29,7 +30,8 @@ export interface KpiSchedule {
 export interface KpiEvent {
   type: 'ENTRY' | 'EXIT';
   at: Date;
-  captureMethod: 'FACIAL' | 'PIN' | 'MANUAL_BACKUP';
+  /** MANUAL: capturada por RH en el panel. */
+  captureMethod: 'FACIAL' | 'PIN' | 'MANUAL_BACKUP' | 'MANUAL';
   status: ReviewStatus;
 }
 
