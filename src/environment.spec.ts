@@ -15,7 +15,37 @@ describe('Validación del entorno', () => {
       ...validEnvironment,
       API_PORT: 3000,
       AUTH_REQUIRE_MFA: true,
+      ADMIN_ORIGINS: [],
     });
+  });
+
+  it('lee los orígenes del panel sin repetir ni barra final', () => {
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        ADMIN_ORIGINS:
+          'http://localhost:5000, https://rh.empresa.mx/,http://localhost:5000',
+      }).ADMIN_ORIGINS,
+    ).toEqual(['http://localhost:5000', 'https://rh.empresa.mx']);
+  });
+
+  it.each(['localhost:5000', 'https://rh.empresa.mx/panel', 'ftp://rh.mx'])(
+    'rechaza el origen inválido %s',
+    (origin) => {
+      expect(() =>
+        validateEnvironment({ ...validEnvironment, ADMIN_ORIGINS: origin }),
+      ).toThrow('ADMIN_ORIGINS');
+    },
+  );
+
+  it('exige HTTPS en los orígenes del panel en producción', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        NODE_ENV: 'production',
+        ADMIN_ORIGINS: 'http://rh.empresa.mx',
+      }),
+    ).toThrow('HTTPS');
   });
 
   it.each([

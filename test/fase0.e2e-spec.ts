@@ -353,8 +353,8 @@ describe('Criterio de cierre: administrador, sucursal y cuenta de RH', () => {
       .expect(403);
   });
 
-  it('el administrador no ve ni crea empleados', async () => {
-    await adminA.get('/api/employees').expect(403);
+  it('el administrador ve empleados pero no los crea', async () => {
+    await adminA.get('/api/employees').expect(200);
     await adminA.post('/api/employees').send({}).expect(403);
   });
 
@@ -394,7 +394,9 @@ describe('Criterio de cierre: administrador, sucursal y cuenta de RH', () => {
       .expect(200);
 
     const audit = await adminA.get('/api/audit').expect(200);
-    const actions = audit.body.map((entry: { action: string }) => entry.action);
+    const actions = audit.body.items.map(
+      (entry: { action: string }) => entry.action,
+    );
     expect(actions).toEqual(
       expect.arrayContaining([
         'company.provisioned',
@@ -403,7 +405,7 @@ describe('Criterio de cierre: administrador, sucursal y cuenta de RH', () => {
         'account.roles_changed',
       ]),
     );
-    const change = audit.body.find(
+    const change = audit.body.items.find(
       (entry: { action: string }) => entry.action === 'account.roles_changed',
     );
     expect(change.details).toEqual({

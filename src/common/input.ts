@@ -139,6 +139,26 @@ export function optionalInteger(
     : integer(body, key, label, min, max);
 }
 
+/** Página de una lista: `page` desde 1 y `pageSize` de 1 a 200 (50 por defecto). */
+export function pageQuery(
+  page: string | undefined,
+  pageSize: string | undefined,
+): { page: number; pageSize: number; skip: number } {
+  const read = (value: string | undefined, fallback: number, max: number) => {
+    if (value === undefined || value === '') return fallback;
+    const number = Number(value);
+    if (!Number.isSafeInteger(number) || number < 1 || number > max) {
+      throw new BadRequestException(
+        `La página debe ser un entero de 1 a ${max}.`,
+      );
+    }
+    return number;
+  };
+  const size = read(pageSize, 50, 200);
+  const current = read(page, 1, 1_000_000);
+  return { page: current, pageSize: size, skip: (current - 1) * size };
+}
+
 /** Convierte una violación de llave única en un 409 legible. */
 export async function unique<T>(work: Promise<T>, message: string): Promise<T> {
   try {

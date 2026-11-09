@@ -85,6 +85,9 @@ model Company {
   attendanceReviews     AttendanceReview[]
   holidays              Holiday[]
   kpiTarget             KpiTarget?
+  manualAttendance      ManualAttendanceEntry[]
+  payrollPolicy         PayrollPolicy?
+  payrollClosures       PayrollClosure[]
 
   @@map("companies")
 }
@@ -99,10 +102,11 @@ model Branch {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  company          Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   employees        Employee[]
   tablets          Tablet[]
   attendanceEvents AttendanceEvent[]
+  manualAttendance ManualAttendanceEntry[]
 
   @@unique([companyId, id])
   @@unique([companyId, code])
@@ -169,17 +173,18 @@ model Employee {
   createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  branch                Branch                 @relation(fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
-  department            Department?            @relation(fields: [companyId, departmentId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
-  position              Position?              @relation(fields: [companyId, positionId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
-  terminationBy         Account?               @relation("EmploymentTerminationActor", fields: [companyId, terminationByAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
-  account               Account?               @relation("EmployeeAccount")
+  company               Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  branch                Branch                  @relation(fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  department            Department?             @relation(fields: [companyId, departmentId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  position              Position?               @relation(fields: [companyId, positionId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  terminationBy         Account?                @relation("EmploymentTerminationActor", fields: [companyId, terminationByAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  account               Account?                @relation("EmployeeAccount")
   biometricConsents     BiometricConsent[]
   attendanceEvents      AttendanceEvent[]
-  attendanceCorrections AttendanceCorrection[] @relation("CorrectedAttendanceEmployee")
+  attendanceCorrections AttendanceCorrection[]  @relation("CorrectedAttendanceEmployee")
   faceTemplates         FaceTemplate[]
   pin                   EmployeePin?
+  manualAttendance      ManualAttendanceEntry[]
 
   @@unique([companyId, id])
   @@unique([companyId, employeeNumber])
@@ -209,17 +214,19 @@ model Account {
   createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  company                   Company                @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  employee                  Employee?              @relation("EmployeeAccount", fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  company                   Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  employee                  Employee?               @relation("EmployeeAccount", fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
   sessions                  Session[]
   roles                     AccountRole[]
-  terminations              Employee[]             @relation("EmploymentTerminationActor")
+  terminations              Employee[]              @relation("EmploymentTerminationActor")
   recordedBiometricConsents BiometricConsent[]
   attendanceCorrections     AttendanceCorrection[]
   auditEntries              AuditEntry[]
   tabletActivations         TabletActivation[]
   faceTemplates             FaceTemplate[]
   attendanceReviews         AttendanceReview[]
+  manualAttendance          ManualAttendanceEntry[]
+  payrollClosures           PayrollClosure[]
 
   @@unique([companyId, id])
   @@unique([companyId, email])
@@ -609,4 +616,79 @@ model KpiTarget {
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@map("kpi_targets")
+}
+
+enum PayPeriodKind {
+  WEEKLY
+  SEMIMONTHLY
+  MONTHLY
+}
+
+enum PayrollClosureAction {
+  CLOSED
+  REOPENED
+}
+
+// Checada capturada por RH desde el panel (sin tablet ni firma de dispositivo).
+// Evidencia: no se edita ni se borra.
+model ManualAttendanceEntry {
+  id              String              @id @default(uuid()) @db.Uuid
+  companyId       String              @map("company_id") @db.Uuid
+  branchId        String              @map("branch_id") @db.Uuid
+  employeeId      String              @map("employee_id") @db.Uuid
+  eventType       AttendanceEventType @map("event_type")
+  occurredAt      DateTime            @map("occurred_at") @db.Timestamptz(6)
+  reason          String              @db.Text
+  authorAccountId String              @map("author_account_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  branch   Branch   @relation(fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  author   Account  @relation(fields: [companyId, authorAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId, occurredAt])
+  @@index([companyId, branchId, occurredAt])
+  @@index([companyId, authorAccountId])
+  @@map("manual_attendance_entries")
+}
+
+// Reglas de pre-nómina de la empresa (una fila por empresa).
+model PayrollPolicy {
+  companyId       String        @id @map("company_id") @db.Uuid
+  periodKind      PayPeriodKind @default(WEEKLY) @map("period_kind")
+  // 1 = lunes … 7 = domingo.
+  weekStart       Int           @default(1) @map("week_start")
+  paidDays        Float         @default(7) @map("paid_days")
+  absenceDays     Float         @default(1) @map("absence_days")
+  latesPerAbsence Int           @default(0) @map("lates_per_absence")
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("payroll_policies")
+}
+
+// Cierres y reaperturas de periodos; el último movimiento de un periodo manda.
+model PayrollClosure {
+  id             String               @id @default(uuid()) @db.Uuid
+  companyId      String               @map("company_id") @db.Uuid
+  // [periodStart, periodEnd)
+  periodStart    DateTime             @map("period_start") @db.Date
+  periodEnd      DateTime             @map("period_end") @db.Date
+  action         PayrollClosureAction
+  actorAccountId String               @map("actor_account_id") @db.Uuid
+  reason         String?              @db.Text
+  // Al cerrar: reglas y renglones congelados.
+  summary        Json?
+  occurredAt     DateTime             @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor   Account @relation(fields: [companyId, actorAccountId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, periodStart, periodEnd, occurredAt])
+  @@index([companyId, actorAccountId])
+  @@map("payroll_closures")
 }

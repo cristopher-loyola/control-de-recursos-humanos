@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { recordAudit } from '../audit/record-audit.js';
 import { CurrentAuth, RequirePermissions } from '../auth/access.js';
@@ -16,7 +17,9 @@ import {
   code,
   isoDate,
   optionalInteger,
+  optionalText,
   optionalUuid,
+  pageQuery,
   readBody,
   text,
   unique,
@@ -34,6 +37,8 @@ const employeeFields = {
   familyNames: true,
   hiredOn: true,
   employmentStatus: true,
+  terminationEffectiveOn: true,
+  terminationReason: true,
   dailyWageCents: true,
   branch: { select: { id: true, code: true, name: true } },
   department: { select: { id: true, name: true } },
@@ -77,17 +82,93 @@ async function nextEmployeeNumber(tx: TenantTransaction): Promise<string> {
 export class EmployeesController {
   constructor(@Inject(TenantDatabase) private readonly db: TenantDatabase) {}
 
+  /**
+   * Lista paginada. Filtros: sucursal, departamento (`none` = sin
+   * departamento), estado (`ACTIVE` por defecto, `TERMINATED` o `all`) y
+   * búsqueda por nombre o número.
+   */
   @RequirePermissions('employees.read')
   @Get()
-  list(@CurrentAuth() auth: AuthContext) {
-    return this.db.run(auth.companyId, async (tx) =>
-      (
-        await tx.employee.findMany({
-          select: employeeFields,
-          orderBy: [{ familyNames: 'asc' }, { givenNames: 'asc' }],
-        })
-      ).map(view),
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @Query('branchId') rawBranch?: string,
+    @Query('departmentId') rawDepartment?: string,
+    @Query('status') rawStatus?: string,
+    @Query('q') rawQuery?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const paging = pageQuery(page, pageSize);
+    const branchId = optionalUuid(
+      { branchId: rawBranch },
+      'branchId',
+      'La sucursal',
     );
+    const withoutDepartment = rawDepartment === 'none';
+    const departmentId = withoutDepartment
+      ? null
+      : optionalUuid(
+          { departmentId: rawDepartment },
+          'departmentId',
+          'El departamento',
+        );
+    const status = rawStatus ?? 'ACTIVE';
+    if (!['ACTIVE', 'TERMINATED', 'all'].includes(status)) {
+      throw new BadRequestException(
+        'El estado debe ser ACTIVE, TERMINATED o all.',
+      );
+    }
+    const query = rawQuery?.trim().slice(0, 80) ?? '';
+    const where: Prisma.EmployeeWhereInput = {
+      ...(branchId ? { branchId } : {}),
+      ...(withoutDepartment
+        ? { departmentId: null }
+        : departmentId
+          ? { departmentId }
+          : {}),
+      ...(status === 'all'
+        ? {}
+        : { employmentStatus: status as 'ACTIVE' | 'TERMINATED' }),
+      ...(query
+        ? {
+            OR: [
+              { employeeNumber: { contains: query, mode: 'insensitive' } },
+              { givenNames: { contains: query, mode: 'insensitive' } },
+              { familyNames: { contains: query, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    return this.db.run(auth.companyId, async (tx) => {
+      const total = await tx.employee.count({ where });
+      const rows = await tx.employee.findMany({
+        where,
+        select: employeeFields,
+        orderBy: [{ familyNames: 'asc' }, { givenNames: 'asc' }],
+        skip: paging.skip,
+        take: paging.pageSize,
+      });
+      return {
+        items: rows.map(view),
+        total,
+        page: paging.page,
+        pageSize: paging.pageSize,
+      };
+    });
+  }
+
+  @RequirePermissions('employees.read')
+  @Get(':id')
+  one(@CurrentAuth() auth: AuthContext, @Param('id') rawId: string) {
+    const id = uuid(rawId, 'El empleado');
+    return this.db.run(auth.companyId, async (tx) => {
+      const employee = await tx.employee.findUnique({
+        where: { id },
+        select: employeeFields,
+      });
+      if (!employee) throw new NotFoundException('El empleado no existe.');
+      return view(employee);
+    });
   }
 
   @RequirePermissions('employees.manage')
@@ -150,7 +231,10 @@ export class EmployeesController {
     });
   }
 
-  /** Departamento y salario diario; los demás datos no cambian desde la tablet. */
+  /**
+   * Nombre, sucursal, departamento, salario, baja y reingreso. La baja exige
+   * fecha efectiva y motivo; el reingreso (status ACTIVE) los limpia.
+   */
   @RequirePermissions('employees.manage')
   @Patch(':id')
   update(
@@ -161,9 +245,57 @@ export class EmployeesController {
     const id = uuid(rawId, 'El empleado');
     const body = readBody(raw);
     const data: {
+      givenNames?: string;
+      familyNames?: string;
+      branchId?: string;
       departmentId?: string | null;
       dailyWageCents?: number | null;
+      employmentStatus?: 'ACTIVE' | 'TERMINATED';
+      terminationEffectiveOn?: Date | null;
+      terminationReason?: string | null;
+      terminationByAccountId?: string | null;
     } = {};
+    if ('givenNames' in body) {
+      data.givenNames = text(body, 'givenNames', 'El nombre', 160);
+    }
+    if ('familyNames' in body) {
+      data.familyNames = text(body, 'familyNames', 'Los apellidos', 160);
+    }
+    if ('branchId' in body) {
+      data.branchId = uuid(body.branchId, 'La sucursal');
+    }
+    if ('status' in body) {
+      if (body.status === 'TERMINATED') {
+        const reason = optionalText(
+          body,
+          'terminationReason',
+          'El motivo de baja',
+          500,
+        );
+        if (!reason || reason.length < 10) {
+          throw new BadRequestException(
+            'Escribe un motivo de baja de 10 a 500 caracteres.',
+          );
+        }
+        data.employmentStatus = 'TERMINATED';
+        data.terminationEffectiveOn = isoDate(
+          body,
+          'terminationEffectiveOn',
+          'La fecha de baja',
+        );
+        data.terminationReason = reason;
+        data.terminationByAccountId = auth.accountId;
+      } else if (body.status === 'ACTIVE') {
+        data.employmentStatus = 'ACTIVE';
+        data.terminationEffectiveOn = null;
+        data.terminationReason = null;
+        data.terminationByAccountId = null;
+      } else {
+        throw new BadRequestException(
+          'El estado debe ser ACTIVE o TERMINATED.',
+        );
+      }
+    }
     if ('departmentId' in body) {
       data.departmentId = optionalUuid(body, 'departmentId', 'El departamento');
     }
@@ -188,6 +320,12 @@ export class EmployeesController {
         !(await tx.department.findUnique({ where: { id: data.departmentId } }))
       ) {
         throw new BadRequestException('El departamento no existe.');
+      }
+      if (
+        data.branchId &&
+        !(await tx.branch.findUnique({ where: { id: data.branchId } }))
+      ) {
+        throw new BadRequestException('La sucursal no existe.');
       }
       const employee = await tx.employee.update({
         where: { id },

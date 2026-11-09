@@ -20,7 +20,7 @@ function httpsOptions() {
 }
 
 async function bootstrap() {
-  // Sin CORS: solo las tablets (clientes nativos) hablan con el API.
+  // CORS solo para los orígenes del panel en ADMIN_ORIGINS (configureApp).
   const app = await NestFactory.create(AppModule, {
     httpsOptions: httpsOptions(),
   });
