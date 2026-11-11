@@ -38,6 +38,15 @@ describe('Validación del entorno', () => {
     },
   );
 
+  it('rechaza una carpeta del panel sin index.html', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        ADMIN_PANEL_DIR: 'carpeta/que/no/existe',
+      }),
+    ).toThrow('ADMIN_PANEL_DIR');
+  });
+
   it('exige HTTPS en los orígenes del panel en producción', () => {
     expect(() =>
       validateEnvironment({

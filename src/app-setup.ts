@@ -1,7 +1,8 @@
+import { join, resolve } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { Express } from 'express';
+import type { Express, NextFunction, Request, Response } from 'express';
 
 /** Configuración común para el servidor y las pruebas e2e. */
 export function configureApp(app: INestApplication): void {
@@ -21,4 +22,33 @@ export function configureApp(app: INestApplication): void {
       maxAge: 600,
     });
   }
+  const panel = app.get(ConfigService).get<string>('ADMIN_PANEL_DIR');
+  if (panel) servePanel(app, panel);
+}
+
+/**
+ * Sirve el build del panel (rh-admin) en el mismo origen que el API: así el
+ * navegador y la tablet lo abren sin CORS y con el mismo certificado. Todo lo
+ * que no es /api ni un archivo del build regresa index.html.
+ */
+export function servePanel(app: INestApplication, dir: string): void {
+  // Los archivos del build de Flutter no llevan huella en el nombre: se
+  // revalidan siempre (ETag) para no servir una versión vieja.
+  (app as NestExpressApplication).useStaticAssets(dir, {
+    index: false,
+    maxAge: 0,
+  });
+  const index = resolve(join(dir, 'index.html'));
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (
+      req.method !== 'GET' ||
+      req.path === '/api' ||
+      req.path.startsWith('/api/')
+    ) {
+      next();
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(index);
+  });
 }
