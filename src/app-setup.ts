@@ -28,12 +28,13 @@ export function configureApp(app: INestApplication): void {
 
 /**
  * Sirve el build del panel (rh-admin) en el mismo origen que el API: así el
- * navegador y la tablet lo abren sin CORS y con el mismo certificado. Todo lo
- * que no es /api ni un archivo del build regresa index.html.
+ * navegador lo abre sin CORS y con el mismo certificado. Las rutas del panel
+ * (sin extensión, p. ej. /empleados) regresan index.html; un archivo que no
+ * existe da 404 en lugar de devolver la página.
  */
 export function servePanel(app: INestApplication, dir: string): void {
-  // Los archivos del build de Flutter no llevan huella en el nombre: se
-  // revalidan siempre (ETag) para no servir una versión vieja.
+  // index.html y los modelos no llevan huella en el nombre: se revalidan
+  // siempre (ETag) para no servir una versión vieja.
   (app as NestExpressApplication).useStaticAssets(dir, {
     index: false,
     maxAge: 0,
@@ -43,7 +44,8 @@ export function servePanel(app: INestApplication, dir: string): void {
     if (
       req.method !== 'GET' ||
       req.path === '/api' ||
-      req.path.startsWith('/api/')
+      req.path.startsWith('/api/') ||
+      /\.[a-z0-9]+$/i.test(req.path)
     ) {
       next();
       return;

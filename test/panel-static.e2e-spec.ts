@@ -14,7 +14,7 @@ let app: INestApplication;
 beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'rh-admin-'));
   writeFileSync(join(dir, 'index.html'), '<html>panel</html>');
-  writeFileSync(join(dir, 'main.dart.js'), 'console.log(1)');
+  writeFileSync(join(dir, 'main-ABC123.js'), 'console.log(1)');
   const module = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
@@ -31,7 +31,7 @@ afterAll(async () => {
 describe('Panel en el mismo origen', () => {
   it('sirve los archivos del build y regresa index.html en las rutas del panel', async () => {
     const asset = await request(app.getHttpServer())
-      .get('/main.dart.js')
+      .get('/main-ABC123.js')
       .expect(200);
     expect(asset.text).toContain('console.log');
     const home = await request(app.getHttpServer())
@@ -43,6 +43,14 @@ describe('Panel en el mismo origen', () => {
       .get('/empleados')
       .expect(200);
     expect(deep.text).toContain('panel');
+    const nested = await request(app.getHttpServer())
+      .get('/indicadores/empleado/abc?nombre=Ana')
+      .expect(200);
+    expect(nested.text).toContain('panel');
+  });
+
+  it('un archivo que no existe da 404, no la página', async () => {
+    await request(app.getHttpServer()).get('/chunk-VIEJO.js').expect(404);
   });
 
   it('no tapa las rutas del API', async () => {

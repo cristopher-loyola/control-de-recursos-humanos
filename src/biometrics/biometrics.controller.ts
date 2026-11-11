@@ -157,7 +157,7 @@ export class BiometricsController {
     });
   }
 
-  /** Registra o reemplaza el rostro con las tomas hechas en la tablet. */
+  /** Registra o reemplaza el rostro con las tomas hechas en el panel (cámara de la PC). */
   @RequirePermissions('biometrics.manage')
   @Post('face')
   enrollFace(
@@ -169,7 +169,7 @@ export class BiometricsController {
     const body = readBody(raw);
     if (body.modelId !== FACE_MODEL_ID) {
       throw new BadRequestException(
-        'La tablet usa otro modelo facial. Actualiza la aplicación.',
+        'El panel usa otro modelo facial. Recarga la página o actualiza el panel.',
       );
     }
     const samples = readSamples(body.samples);
