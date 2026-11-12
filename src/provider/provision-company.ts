@@ -10,7 +10,8 @@ export const SYSTEM_ROLES: Record<
 > = {
   ADMIN: {
     name: 'Administrador',
-    description: 'Configura la empresa, sucursales, cuentas y roles.',
+    description:
+      'Configura la empresa, sucursales, cuentas y roles; también da de alta departamentos y empleados.',
     permissions: [
       'self.read',
       'company.read',
@@ -22,7 +23,9 @@ export const SYSTEM_ROLES: Record<
       'tablets.read',
       'tablets.manage',
       'employees.read',
+      'employees.manage',
       'departments.read',
+      'departments.manage',
       'attendance.review',
       'holidays.manage',
       'kpis.read',
