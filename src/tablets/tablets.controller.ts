@@ -8,17 +8,34 @@ import {
   Inject,
   NotFoundException,
   Param,
+  Patch,
   Post,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { recordAudit } from '../audit/record-audit.js';
 import { CurrentAuth, RequirePermissions } from '../auth/access.js';
 import type { AuthContext } from '../auth/access.js';
 import { hashSessionToken } from '../auth/session-token.js';
-import { code, readBody, text, unique, uuid } from '../common/input.js';
+import {
+  code,
+  optionalText,
+  optionalUuid,
+  readBody,
+  text,
+  unique,
+  uuid,
+} from '../common/input.js';
 import { TenantDatabase } from '../database/tenant-database.js';
-import { ServerIdentity } from '../server-identity.js';
+import {
+  ServerIdentity,
+  linkQr,
+  shortFingerprint,
+} from '../server-identity.js';
 
 export const ACTIVATION_LIFETIME_MS = 15 * 60_000;
+/** Nombre de una tablet recién creada, hasta que se le pone su ubicación. */
+export const NO_LOCATION = 'Sin ubicación';
 // Sin 0/O, 1/I/L: se dicta y se escribe a mano en la tablet.
 const ACTIVATION_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -74,15 +91,36 @@ export class TabletsController {
     const data = {
       companyId: auth.companyId,
       branchId,
-      code: code(body, 'code', 'El código de la tablet'),
-      name: text(body, 'name', 'El nombre de la tablet', 160),
+      // La ubicación se puede poner después de vincularla.
+      name:
+        optionalText(body, 'name', 'La ubicación de la tablet', 160) ??
+        NO_LOCATION,
     };
+    // Sin clave se asigna la siguiente libre: TAB-1, TAB-2…
+    const given =
+      typeof body.code === 'string' && body.code.trim() !== ''
+        ? code(body, 'code', 'El código de la tablet')
+        : null;
     return this.db.run(auth.companyId, async (tx) => {
       if (!(await tx.branch.findUnique({ where: { id: branchId } }))) {
         throw new BadRequestException('La sucursal no existe.');
       }
+      let tabletCode = given;
+      if (!tabletCode) {
+        const used = new Set(
+          (await tx.tablet.findMany({ select: { code: true } })).map((t) =>
+            t.code.toUpperCase(),
+          ),
+        );
+        let next = used.size + 1;
+        while (used.has(`TAB-${next}`)) next++;
+        tabletCode = `TAB-${next}`;
+      }
       const tablet = await unique(
-        tx.tablet.create({ data, select: tabletFields }),
+        tx.tablet.create({
+          data: { ...data, code: tabletCode },
+          select: tabletFields,
+        }),
         'Ya existe una tablet con ese código.',
       );
       await recordAudit(tx, {
@@ -97,6 +135,52 @@ export class TabletsController {
     });
   }
 
+  /** Cambia la ubicación (nombre) o la sucursal de la tablet. */
+  @RequirePermissions('tablets.manage')
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id') rawId: string,
+    @Body() raw: unknown,
+  ) {
+    const id = uuid(rawId, 'La tablet');
+    const body = readBody(raw);
+    const name =
+      body.name === undefined
+        ? undefined
+        : text(body, 'name', 'La ubicación de la tablet', 160);
+    const branchId = optionalUuid(body, 'branchId', 'La sucursal') ?? undefined;
+    if (name === undefined && branchId === undefined) {
+      throw new BadRequestException('No hay cambios.');
+    }
+    return this.db.run(auth.companyId, async (tx) => {
+      const current = await tx.tablet.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('La tablet no existe.');
+      if (branchId) {
+        const branch = await tx.branch.findUnique({ where: { id: branchId } });
+        if (!branch?.isActive)
+          throw new BadRequestException('La sucursal no existe.');
+      }
+      const tablet = await tx.tablet.update({
+        where: { id },
+        data: { name, branchId },
+        select: tabletFields,
+      });
+      await recordAudit(tx, {
+        companyId: auth.companyId,
+        actorAccountId: auth.accountId,
+        action: 'tablet.updated',
+        entityType: 'tablet',
+        entityId: id,
+        details: {
+          ...(name !== undefined ? { from: current.name, to: name } : {}),
+          ...(branchId ? { branchId } : {}),
+        },
+      });
+      return tablet;
+    });
+  }
+
   /**
    * Código de un solo uso, válido 15 minutos. Se muestra una vez; volver a
    * vincular una tablet activa le asigna token y llave nuevos.
@@ -104,8 +188,13 @@ export class TabletsController {
   @RequirePermissions('tablets.manage')
   @Post(':id/activation')
   @HttpCode(200)
-  activation(@CurrentAuth() auth: AuthContext, @Param('id') rawId: string) {
+  async activation(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id') rawId: string,
+    @Req() request: Request,
+  ) {
     const id = uuid(rawId, 'La tablet');
+    const endpoint = await this.identity.deviceEndpoint(request.headers.host);
     const activationCode = newActivationCode();
     const expiresAt = new Date(Date.now() + ACTIVATION_LIFETIME_MS);
     return this.db.run(auth.companyId, async (tx) => {
@@ -140,11 +229,17 @@ export class TabletsController {
         entityType: 'tablet',
         entityId: id,
       });
+      const shown = `${activationCode.slice(0, 4)}-${activationCode.slice(4)}`;
       return {
         company: tablet.company.slug,
-        code: `${activationCode.slice(0, 4)}-${activationCode.slice(4)}`,
+        code: shown,
         expiresAt,
-        serverFingerprint: this.identity.shortFingerprint,
+        serverFingerprint: endpoint
+          ? shortFingerprint(endpoint.fingerprint)
+          : this.identity.shortFingerprint,
+        // Con el QR la tablet se vincula sola; sin él, se escribe el código.
+        serverUrl: endpoint?.serverUrl ?? null,
+        qr: endpoint ? linkQr(endpoint, tablet.company.slug, shown) : null,
       };
     });
   }

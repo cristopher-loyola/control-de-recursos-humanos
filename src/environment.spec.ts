@@ -47,6 +47,24 @@ describe('Validación del entorno', () => {
     ).toThrow('ADMIN_PANEL_DIR');
   });
 
+  it('acepta la dirección de las tablets solo como https://servidor:puerto', () => {
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        DEVICE_SERVER_URL: 'https://192.168.1.10:3443/',
+      }).DEVICE_SERVER_URL,
+    ).toBe('https://192.168.1.10:3443');
+    for (const value of [
+      'http://192.168.1.10:3443',
+      'https://x/api',
+      'no es url',
+    ]) {
+      expect(() =>
+        validateEnvironment({ ...validEnvironment, DEVICE_SERVER_URL: value }),
+      ).toThrow('DEVICE_SERVER_URL');
+    }
+  });
+
   it('exige HTTPS en los orígenes del panel en producción', () => {
     expect(() =>
       validateEnvironment({
