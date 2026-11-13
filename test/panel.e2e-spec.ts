@@ -291,13 +291,31 @@ describe('Acceso desde el navegador', () => {
 });
 
 describe('Empleados y sucursales', () => {
-  it('el administrador ve empleados pero no los modifica', async () => {
+  it('el administrador modifica empleados y queda en la auditoría', async () => {
     const list = await as(adminA).get('/api/employees').expect(200);
     expect(list.body.total).toBe(2);
     await as(adminA)
       .patch(`/api/employees/${employeeId}`)
       .send({ givenNames: 'Otra' })
-      .expect(403);
+      .expect(200);
+    await as(adminA)
+      .patch(`/api/employees/${employeeId}`)
+      .send({ givenNames: 'Ana' })
+      .expect(200);
+    const audit = await as(adminA).get('/api/audit').expect(200);
+    const updates = audit.body.items.filter(
+      (entry: { action: string; entityId: string }) =>
+        entry.action === 'employee.updated' && entry.entityId === employeeId,
+    );
+    expect(updates.map((entry: { details: object }) => entry.details)).toEqual(
+      expect.arrayContaining([{ givenNames: 'Otra' }, { givenNames: 'Ana' }]),
+    );
+    expect(
+      updates.map(
+        (entry: { actorAccount: { email: string } }) =>
+          entry.actorAccount.email,
+      ),
+    ).toEqual([`admin@${slugA}.mx`, `admin@${slugA}.mx`]);
   });
 
   it('filtra, busca y pagina', async () => {

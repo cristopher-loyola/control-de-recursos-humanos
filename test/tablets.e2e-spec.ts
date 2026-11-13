@@ -386,6 +386,35 @@ describe('Alta y vinculación de tablets', () => {
       .expect(400);
   });
 
+  it('sin clave ni ubicación se crea igual; la ubicación se pone después', async () => {
+    const created = await as(adminA)
+      .post('/api/tablets')
+      .send({ branchId })
+      .expect(201);
+    expect(created.body.code).toBe('TAB-3');
+    expect(created.body.name).toBe('Sin ubicación');
+    const renamed = await as(adminA)
+      .patch(`/api/tablets/${created.body.id}`)
+      .send({ name: 'Recepción' })
+      .expect(200);
+    expect(renamed.body.name).toBe('Recepción');
+    await as(rhA)
+      .patch(`/api/tablets/${created.body.id}`)
+      .send({ name: 'Otra' })
+      .expect(403);
+    await as(adminA)
+      .patch(`/api/tablets/${created.body.id}`)
+      .send({})
+      .expect(400);
+    const issued = await as(adminA)
+      .post(`/api/tablets/${created.body.id}/activation`)
+      .expect(200);
+    expect(issued.body.code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    expect(issued.body.company).toBe(slugA);
+    expect(issued.body.qr).toBeNull();
+    expect(issued.body.serverUrl).toBeNull();
+  });
+
   it('las rutas de tablet no aceptan una sesión de RH ni al revés', async () => {
     await as(rhA).get('/api/device/sync').expect(401);
     await one.device().get('/api/employees').expect(401);

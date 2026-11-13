@@ -191,6 +191,7 @@ async function removeCompany(companyId: string): Promise<void> {
     await tx.rolePermission.deleteMany({ where: { companyId } });
     await tx.account.deleteMany({ where: { companyId } });
     await tx.employee.deleteMany({ where: { companyId } });
+    await tx.department.deleteMany({ where: { companyId } });
     await tx.branch.deleteMany({ where: { companyId } });
     await tx.role.deleteMany({ where: { companyId } });
     await tx.company.delete({ where: { id: companyId } });
@@ -353,9 +354,42 @@ describe('Criterio de cierre: administrador, sucursal y cuenta de RH', () => {
       .expect(403);
   });
 
-  it('el administrador ve empleados pero no los crea', async () => {
+  it('el administrador da de alta departamentos y empleados, y queda en la auditoría', async () => {
+    const department = await adminA
+      .post('/api/departments')
+      .send({
+        name: 'Ventas',
+        entryMinutes: 540,
+        exitMinutes: 1080,
+        toleranceMinutes: 10,
+        workDays: 31,
+      })
+      .expect(201);
+    const employee = await adminA
+      .post('/api/employees')
+      .send({
+        branchId: branchA.id,
+        departmentId: department.body.id,
+        employeeNumber: 'E-002',
+        givenNames: 'Luis',
+        familyNames: 'Pérez',
+        hiredOn: '2026-11-01',
+      })
+      .expect(201);
     await adminA.get('/api/employees').expect(200);
-    await adminA.post('/api/employees').send({}).expect(403);
+
+    const audit = await adminA.get('/api/audit').expect(200);
+    const byAdmin = (action: string, entityId: string) =>
+      audit.body.items.find(
+        (entry: { action: string; entityId: string }) =>
+          entry.action === action && entry.entityId === entityId,
+      );
+    expect(
+      byAdmin('department.created', department.body.id).actorAccount.email,
+    ).toBe(companyA.admin);
+    expect(
+      byAdmin('employee.created', employee.body.id).actorAccount.email,
+    ).toBe(companyA.admin);
   });
 
   it('el empleado solo consulta su propia cuenta', async () => {

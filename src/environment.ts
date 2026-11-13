@@ -60,6 +60,7 @@ export function validateEnvironment(config: Record<string, unknown>) {
     AUTH_REQUIRE_MFA: requireMfa(config, nodeEnv),
     ADMIN_ORIGINS: adminOrigins(config, nodeEnv),
     ...adminPanel(config),
+    ...deviceServerUrl(config),
     ...tlsFiles(config),
   };
 }
@@ -134,6 +135,31 @@ function adminPanel(config: Record<string, unknown>) {
     );
   }
   return { ADMIN_PANEL_DIR: value };
+}
+
+/**
+ * Dirección con que las tablets llegan al API (https://IP:puerto), para el QR
+ * de vinculación. Hace falta cuando el panel se abre en otra dirección que
+ * las tablets; si el API ya sirve HTTPS se toma de la propia petición.
+ */
+function deviceServerUrl(config: Record<string, unknown>) {
+  const value = config.DEVICE_SERVER_URL;
+  if (value === undefined || value === null || value === '') return {};
+  if (typeof value !== 'string') {
+    throw new Error('DEVICE_SERVER_URL debe ser una URL válida.');
+  }
+  const url = parseUrl(value.trim(), 'DEVICE_SERVER_URL');
+  if (
+    url.protocol !== 'https:' ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      'DEVICE_SERVER_URL debe ser solo https://servidor:puerto, sin ruta.',
+    );
+  }
+  return { DEVICE_SERVER_URL: url.origin };
 }
 
 function base64Key(config: Record<string, unknown>, key: string): string {
