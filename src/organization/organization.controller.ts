@@ -2,15 +2,20 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
   Patch,
   Post,
+  Put,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { recordAudit } from '../audit/record-audit.js';
-import { CurrentAuth, RequirePermissions } from '../auth/access.js';
+import { CurrentAuth, Public, RequirePermissions } from '../auth/access.js';
 import type { AuthContext } from '../auth/access.js';
 import {
   code,
@@ -21,6 +26,7 @@ import {
   uuid,
 } from '../common/input.js';
 import { TenantDatabase } from '../database/tenant-database.js';
+import { readLogo } from './company-logo.js';
 
 const branchFields = {
   id: true,
@@ -40,9 +46,93 @@ export class OrganizationController {
     return this.db.run(auth.companyId, (tx) =>
       tx.company.findUniqueOrThrow({
         where: { id: auth.companyId },
-        select: { id: true, name: true, slug: true, timeZone: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          timeZone: true,
+          logoUpdatedAt: true,
+        },
       }),
     );
+  }
+
+  /** Sube o reemplaza el logo de la empresa. */
+  @RequirePermissions('branches.manage')
+  @Put('company/logo')
+  @HttpCode(200)
+  setLogo(@CurrentAuth() auth: AuthContext, @Body() raw: unknown) {
+    const { mime, data } = readLogo(readBody(raw));
+    return this.db.run(auth.companyId, async (tx) => {
+      const company = await tx.company.update({
+        where: { id: auth.companyId },
+        data: {
+          logoMime: mime,
+          logoData: new Uint8Array(data),
+          logoUpdatedAt: new Date(),
+        },
+        select: { logoUpdatedAt: true },
+      });
+      await recordAudit(tx, {
+        companyId: auth.companyId,
+        actorAccountId: auth.accountId,
+        action: 'company.logo_updated',
+        entityType: 'company',
+        entityId: auth.companyId,
+        details: { mime, bytes: data.length },
+      });
+      return company;
+    });
+  }
+
+  @RequirePermissions('branches.manage')
+  @Delete('company/logo')
+  removeLogo(@CurrentAuth() auth: AuthContext) {
+    return this.db.run(auth.companyId, async (tx) => {
+      await tx.company.update({
+        where: { id: auth.companyId },
+        data: { logoMime: null, logoData: null, logoUpdatedAt: null },
+      });
+      await recordAudit(tx, {
+        companyId: auth.companyId,
+        actorAccountId: auth.accountId,
+        action: 'company.logo_removed',
+        entityType: 'company',
+        entityId: auth.companyId,
+      });
+      return { logoUpdatedAt: null };
+    });
+  }
+
+  /**
+   * Logo por código de empresa, sin sesión: se muestra en el inicio de sesión
+   * y en un `<img>`, que no manda el token. No es información privada.
+   */
+  @Public()
+  @Get('companies/:slug/logo')
+  async logo(@Param('slug') slug: string, @Res() response: Response) {
+    const companyId = /^[a-z0-9-]{1,80}$/.test(slug)
+      ? await this.db.companyIdBySlug(slug)
+      : null;
+    const logo = companyId
+      ? await this.db.run(companyId, (tx) =>
+          tx.company.findUnique({
+            where: { id: companyId },
+            select: { logoMime: true, logoData: true },
+          }),
+        )
+      : null;
+    if (!logo?.logoMime || !logo.logoData) {
+      response.status(404).json({ message: 'La empresa no tiene logo.' });
+      return;
+    }
+    response
+      .status(200)
+      .setHeader('Content-Type', logo.logoMime)
+      .setHeader('Cache-Control', 'public, max-age=300')
+      .setHeader('X-Content-Type-Options', 'nosniff')
+      .setHeader('Content-Security-Policy', "default-src 'none'")
+      .end(Buffer.from(logo.logoData));
   }
 
   @RequirePermissions('branches.read')

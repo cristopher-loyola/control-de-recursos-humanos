@@ -55,13 +55,17 @@ enum SessionStage {
 }
 
 model Company {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @db.VarChar(160)
-  slug      String   @unique @db.VarChar(80)
-  timeZone  String   @default("America/Mexico_City") @map("time_zone") @db.VarChar(80)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String    @db.VarChar(160)
+  slug          String    @unique @db.VarChar(80)
+  timeZone      String    @default("America/Mexico_City") @map("time_zone") @db.VarChar(80)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // Logo (PNG, JPEG o WebP, hasta 300 KB) para el panel y las tablets.
+  logoMime      String?   @map("logo_mime") @db.VarChar(20)
+  logoData      Bytes?    @map("logo_data")
+  logoUpdatedAt DateTime? @map("logo_updated_at") @db.Timestamptz(6)
 
   branches              Branch[]
   departments           Department[]

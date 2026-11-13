@@ -140,6 +140,25 @@ export class DeviceController {
     return body;
   }
 
+  /** Logo de la empresa para el checador; la tablet lo guarda para verlo sin red. */
+  @DeviceRoute()
+  @Get('logo')
+  logo(@CurrentDevice() device: DeviceContext) {
+    return this.db.run(device.companyId, async (tx) => {
+      const company = await tx.company.findUniqueOrThrow({
+        where: { id: device.companyId },
+        select: { logoMime: true, logoData: true, logoUpdatedAt: true },
+      });
+      return company.logoMime && company.logoData
+        ? {
+            mime: company.logoMime,
+            data: Buffer.from(company.logoData).toString('base64'),
+            updatedAt: company.logoUpdatedAt,
+          }
+        : { mime: null, data: null, updatedAt: company.logoUpdatedAt };
+    });
+  }
+
   @DeviceRoute()
   @Post('events')
   @HttpCode(200)
