@@ -28,9 +28,19 @@ export interface DeviceEventPayload {
   captureMethod: 'FACIAL' | 'PIN' | 'MANUAL_BACKUP';
   occurredAt: string;
   faceSimilarity: number | null;
+  /** Prueba de vida pasiva de 0 a 1; null si no hubo (PIN o app anterior). */
+  livenessScore?: number | null;
+  livenessMethod?: LivenessMethod | null;
   faceTemplateId: string | null;
   photoSha256: string | null;
 }
+
+export const LIVENESS_METHODS = [
+  'passive',
+  'passive+challenge',
+  'failed',
+] as const;
+export type LivenessMethod = (typeof LIVENESS_METHODS)[number];
 
 export interface IncomingEvent {
   payload: string;
@@ -97,6 +107,19 @@ export function parsePayload(
       value.faceSimilarity === null ||
       (typeof value.faceSimilarity === 'number' &&
         Number.isFinite(value.faceSimilarity))
+    ) ||
+    !(
+      value.livenessScore === undefined ||
+      value.livenessScore === null ||
+      (typeof value.livenessScore === 'number' &&
+        Number.isFinite(value.livenessScore) &&
+        value.livenessScore >= 0 &&
+        value.livenessScore <= 1)
+    ) ||
+    !(
+      value.livenessMethod === undefined ||
+      value.livenessMethod === null ||
+      LIVENESS_METHODS.includes(value.livenessMethod as LivenessMethod)
     ) ||
     !nullableUuid(value.faceTemplateId) ||
     !(
@@ -280,6 +303,21 @@ export class DeviceEvents {
       reasons.push('La checada facial no indica la plantilla usada.');
     }
 
+    // Prueba de vida: una checada facial que no la superó, o que no la trae
+    // (app anterior), la revisa RH con su foto.
+    if (payload.captureMethod === 'FACIAL') {
+      if (payload.livenessMethod === 'failed') {
+        reasons.push('Prueba de vida no superada (posible suplantación).');
+        if (!payload.photoSha256) {
+          reasons.push('Falta la foto de la checada sin prueba de vida.');
+        }
+      } else if (!payload.livenessMethod) {
+        reasons.push(
+          'Checada sin prueba de vida (versión anterior de la app).',
+        );
+      }
+    }
+
     if (photo) {
       const digest = createHash('sha256').update(photo).digest('hex');
       if (photo.length > MAX_PHOTO_BYTES || digest !== payload.photoSha256) {
@@ -363,6 +401,8 @@ export class DeviceEvents {
         serverReceivedAt: now,
         sequence,
         faceSimilarity: payload.faceSimilarity,
+        livenessScore: payload.livenessScore ?? null,
+        livenessMethod: payload.livenessMethod ?? null,
         faceTemplateId,
         photoSha256: payload.photoSha256,
         requiresReview,
