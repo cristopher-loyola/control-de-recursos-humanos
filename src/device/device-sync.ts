@@ -29,7 +29,14 @@ export class DeviceSync {
           id: true,
           code: true,
           name: true,
-          company: { select: { name: true, slug: true, timeZone: true } },
+          company: {
+            select: {
+              name: true,
+              slug: true,
+              timeZone: true,
+              logoUpdatedAt: true,
+            },
+          },
           branch: { select: { id: true, code: true, name: true } },
         },
       });

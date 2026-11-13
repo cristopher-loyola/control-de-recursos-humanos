@@ -93,6 +93,7 @@ function as(token: string) {
     post: (path: string) => http().post(path).set('Authorization', token),
     put: (path: string) => http().put(path).set('Authorization', token),
     patch: (path: string) => http().patch(path).set('Authorization', token),
+    delete: (path: string) => http().delete(path).set('Authorization', token),
   };
 }
 
@@ -499,6 +500,60 @@ describe('Datos que la tablet necesita para checar sin red', () => {
       .get('/api/device/sync')
       .set('If-None-Match', first.headers.etag)
       .expect(304);
+  });
+});
+
+describe('Logo de la empresa', () => {
+  // PNG de 1×1 px.
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==';
+
+  it('el administrador lo sube; RH no puede y no se aceptan SVG', async () => {
+    await as(rhA)
+      .put('/api/company/logo')
+      .send({ mime: 'image/png', data: png })
+      .expect(403);
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    ).toString('base64');
+    await as(adminA)
+      .put('/api/company/logo')
+      .send({ mime: 'image/svg+xml', data: svg })
+      .expect(400);
+    await as(adminA)
+      .put('/api/company/logo')
+      .send({ mime: 'image/jpeg', data: png })
+      .expect(400);
+    const saved = await as(adminA)
+      .put('/api/company/logo')
+      .send({ mime: 'image/png', data: png })
+      .expect(200);
+    expect(saved.body.logoUpdatedAt).toBeTruthy();
+    const me = await as(adminA).get('/api/auth/me').expect(200);
+    expect(me.body.company.logoUpdatedAt).toBe(saved.body.logoUpdatedAt);
+  });
+
+  it('se ve sin sesión por código de empresa y lo baja la tablet', async () => {
+    const image = await http().get(`/api/companies/${slugA}/logo`).expect(200);
+    expect(image.headers['content-type']).toBe('image/png');
+    expect(image.headers['x-content-type-options']).toBe('nosniff');
+    expect(Buffer.from(image.body).toString('base64')).toBe(png);
+    await http().get(`/api/companies/${slugB}/logo`).expect(404);
+
+    const sync = await one.device().get('/api/device/sync').expect(200);
+    expect(sync.body.company.logoUpdatedAt).toBeTruthy();
+    const logo = await one.device().get('/api/device/logo').expect(200);
+    expect(logo.body).toMatchObject({ mime: 'image/png', data: png });
+    await as(adminA).get('/api/device/logo').expect(401);
+  });
+
+  it('al quitarlo deja de mostrarse', async () => {
+    await as(adminA).delete('/api/company/logo').expect(200);
+    await http().get(`/api/companies/${slugA}/logo`).expect(404);
+    const logo = await one.device().get('/api/device/logo').expect(200);
+    expect(logo.body.data).toBeNull();
+    const me = await as(adminA).get('/api/auth/me').expect(200);
+    expect(me.body.company.logoUpdatedAt).toBeNull();
   });
 });
 

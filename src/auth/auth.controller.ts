@@ -62,7 +62,7 @@ export class AuthController {
           companyId_id: { companyId: auth.companyId, id: auth.accountId },
         },
         include: {
-          company: { select: { name: true, slug: true } },
+          company: { select: { name: true, slug: true, logoUpdatedAt: true } },
           employee: {
             select: {
               employeeNumber: true,
