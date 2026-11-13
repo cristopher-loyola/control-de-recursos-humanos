@@ -51,6 +51,8 @@ export class ReviewsController {
           id: true,
           eventType: true,
           captureMethod: true,
+          livenessScore: true,
+          livenessMethod: true,
           deviceOccurredAt: true,
           requiresReview: true,
           reviewReasons: true,

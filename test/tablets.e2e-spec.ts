@@ -137,6 +137,8 @@ class FakeTablet {
       occurredAt?: Date;
       faceTemplateId?: string | null;
       photo?: Buffer;
+      /** Prueba de vida; por omisión, la pasiva superada en checadas faciales. */
+      liveness?: { score: number | null; method: string | null } | null;
     },
     signer: KeyObject = this.keys.privateKey,
   ) {
@@ -153,6 +155,16 @@ class FakeTablet {
         captureMethod: fields.captureMethod,
         occurredAt: (fields.occurredAt ?? new Date()).toISOString(),
         faceSimilarity: fields.captureMethod === 'FACIAL' ? 0.72 : null,
+        ...(fields.liveness === null
+          ? {}
+          : {
+              livenessScore:
+                fields.liveness?.score ??
+                (fields.captureMethod === 'FACIAL' ? 0.93 : null),
+              livenessMethod:
+                fields.liveness?.method ??
+                (fields.captureMethod === 'FACIAL' ? 'passive' : null),
+            }),
         faceTemplateId: fields.faceTemplateId ?? null,
         photoSha256: fields.photo
           ? createHash('sha256').update(fields.photo).digest('hex')
@@ -680,6 +692,95 @@ describe('Checadas firmadas', () => {
     await as(adminA).post(`/api/tablets/${tabletTwoId}/revoke`).expect(200);
     await two.device().get('/api/device/sync').expect(401);
     await as(adminA).post(`/api/tablets/${tabletTwoId}/activation`).expect(400);
+  });
+});
+
+describe('Prueba de vida', () => {
+  async function send(event: ReturnType<FakeTablet['event']>) {
+    const sent = await one
+      .device()
+      .post('/api/device/events')
+      .send({ events: [event.body] })
+      .expect(200);
+    expect(sent.body.results[0]).toMatchObject({ status: 'accepted' });
+    return owner.attendanceEvent.findUniqueOrThrow({
+      where: { id: event.id },
+      select: {
+        requiresReview: true,
+        reviewReasons: true,
+        livenessScore: true,
+        livenessMethod: true,
+      },
+    });
+  }
+
+  it('guarda el puntaje y el método de la prueba superada', async () => {
+    const saved = await send(
+      one.event({
+        employeeId,
+        eventType: 'EXIT',
+        captureMethod: 'FACIAL',
+        faceTemplateId,
+        liveness: { score: 0.71, method: 'passive+challenge' },
+      }),
+    );
+    expect(saved.livenessScore).toBeCloseTo(0.71);
+    expect(saved.livenessMethod).toBe('passive+challenge');
+    expect(saved.reviewReasons).not.toContain(
+      'Prueba de vida no superada (posible suplantación).',
+    );
+  });
+
+  it('sin prueba de vida superada va a revisión y pide la foto', async () => {
+    const saved = await send(
+      one.event({
+        employeeId,
+        eventType: 'ENTRY',
+        captureMethod: 'FACIAL',
+        faceTemplateId,
+        liveness: { score: 0.12, method: 'failed' },
+      }),
+    );
+    expect(saved.requiresReview).toBe(true);
+    expect(saved.livenessMethod).toBe('failed');
+    expect(saved.reviewReasons).toEqual(
+      expect.arrayContaining([
+        'Prueba de vida no superada (posible suplantación).',
+        'Falta la foto de la checada sin prueba de vida.',
+      ]),
+    );
+  });
+
+  it('una checada facial de la app anterior, sin prueba de vida, va a revisión', async () => {
+    const saved = await send(
+      one.event({
+        employeeId,
+        eventType: 'EXIT',
+        captureMethod: 'FACIAL',
+        faceTemplateId,
+        liveness: null,
+      }),
+    );
+    expect(saved.requiresReview).toBe(true);
+    expect(saved.reviewReasons).toContain(
+      'Checada sin prueba de vida (versión anterior de la app).',
+    );
+  });
+
+  it('un puntaje fuera de 0 a 1 o un método desconocido se rechaza', async () => {
+    const bad = one.event({
+      employeeId,
+      eventType: 'ENTRY',
+      captureMethod: 'FACIAL',
+      faceTemplateId,
+      liveness: { score: 1.7, method: 'magia' },
+    });
+    const sent = await one
+      .device()
+      .post('/api/device/events')
+      .send({ events: [bad.body] })
+      .expect(200);
+    expect(sent.body.results[0].status).toBe('rejected');
   });
 });
 

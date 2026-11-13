@@ -429,6 +429,8 @@ model AttendanceEvent {
   photoSha256       String?                 @map("photo_sha256") @db.Char(64)
   faceSimilarity    Float?                  @map("face_similarity")
   livenessScore     Float?                  @map("liveness_score")
+  // passive, passive+challenge o failed (no se confirmó: va a revisión).
+  livenessMethod    String?                 @map("liveness_method") @db.VarChar(20)
   requiresReview    Boolean                 @default(true) @map("requires_review")
   // Motivos por los que el servidor dejó la checada para revisión de RH.
   reviewReasons     String[]                @default([]) @map("review_reasons")
