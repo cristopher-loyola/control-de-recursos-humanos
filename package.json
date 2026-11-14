@@ -25,7 +25,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:migrate": "prisma migrate deploy",
     "db:prepare": "prisma migrate deploy && node scripts/provision-app-role.mjs",
-    "empresa:crear": "nest build && node dist/provider/create-company.cli.js"
+    "empresa:crear": "nest build && node dist/provider/create-company.cli.js",
+    "demo:manual": "nest build && node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
