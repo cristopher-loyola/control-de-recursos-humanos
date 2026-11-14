@@ -491,7 +491,9 @@ async function seed() {
           createdAt,
           ...data,
         },
-        update: data,
+        // El alta en el sistema va antes de las checadas: la asistencia solo se
+        // mide desde que el empleado está registrado.
+        update: { createdAt, ...data },
       });
       employeeIds[employee.number] = row.id;
       audit(

@@ -11,6 +11,7 @@ import type {
 } from '../kpis/kpi-engine.js';
 import type { TenantTransaction } from '../database/tenant-database.js';
 import { reviewStatus } from './review-status.js';
+import { localTime } from './schedule.js';
 
 export interface AttendanceFilter {
   employeeId?: string;
@@ -25,6 +26,8 @@ export interface LoadedEmployee {
   employeeNumber: string;
   name: string;
   hiredOn: string;
+  /** Desde cuándo se mide su asistencia (ver `countsFrom`). */
+  countsFrom: string;
   branch: { id: string; name: string };
   department: {
     id: string;
@@ -46,6 +49,57 @@ export interface LoadedAttendance {
     departmentId: string | null;
   }[];
   employees: LoadedEmployee[];
+}
+
+/**
+ * Primer día en que se mide la asistencia de un empleado: el más tardío
+ * entre su fecha de ingreso, el día en que se registró en el sistema y el
+ * día de la primera checada de su sucursal. Antes de eso la persona no podía
+ * checar, así que esos días no cuentan como asistencia ni como falta. Si la
+ * sucursal todavía no tiene checadas, se mide a partir de mañana (nada).
+ * La pre-nómina sigue pagando desde la fecha de ingreso.
+ */
+export function countsFrom(dates: {
+  hiredOn: string;
+  registeredOn: string;
+  branchStart: string | null;
+  today: string;
+}): string {
+  const branchStart = dates.branchStart ?? addDays(dates.today, 1);
+  return [dates.hiredOn, dates.registeredOn, branchStart].reduce((a, b) =>
+    b > a ? b : a,
+  );
+}
+
+/**
+ * Día local de la primera checada de cada sucursal (de tablet o capturada
+ * por RH), contando a todos sus empleados, también los dados de baja.
+ * Una consulta por sucursal; las interactivas no admiten consultas en
+ * paralelo.
+ */
+async function branchStarts(
+  tx: TenantTransaction,
+  branchIds: string[],
+  timeZone: string,
+): Promise<Map<string, string>> {
+  const starts = new Map<string, string>();
+  for (const branchId of branchIds) {
+    const event = await tx.attendanceEvent.findFirst({
+      where: { employee: { is: { branchId } } },
+      orderBy: { deviceOccurredAt: 'asc' },
+      select: { deviceOccurredAt: true },
+    });
+    const manual = await tx.manualAttendanceEntry.findFirst({
+      where: { employee: { branchId } },
+      orderBy: { occurredAt: 'asc' },
+      select: { occurredAt: true },
+    });
+    const first = [event?.deviceOccurredAt, manual?.occurredAt]
+      .filter((at): at is Date => at !== undefined)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    if (first) starts.set(branchId, localTime(first, timeZone).day);
+  }
+  return starts;
 }
 
 /**
@@ -80,6 +134,7 @@ export async function loadAttendance(
       givenNames: true,
       familyNames: true,
       hiredOn: true,
+      createdAt: true,
       dailyWageCents: true,
       branch: { select: { id: true, name: true } },
       faceTemplates: {
@@ -163,6 +218,20 @@ export async function loadAttendance(
       status: 'approved',
     });
   }
+  const now = new Date();
+  const today = localTime(now, company.timeZone).day;
+  const starts = await branchStarts(
+    tx,
+    [...new Set(employees.map((employee) => employee.branch.id))],
+    company.timeZone,
+  );
+  const measuredFrom = (employee: (typeof employees)[number]) =>
+    countsFrom({
+      hiredOn: employee.hiredOn.toISOString().slice(0, 10),
+      registeredOn: localTime(employee.createdAt, company.timeZone).day,
+      branchStart: starts.get(employee.branch.id) ?? null,
+      today,
+    });
   const holidayRows = holidays.map((holiday) => ({
     id: holiday.id,
     day: holiday.day.toISOString().slice(0, 10),
@@ -174,7 +243,7 @@ export async function loadAttendance(
     holidays: holidayRows,
     context: {
       timeZone: company.timeZone,
-      now: new Date(),
+      now,
       holidays: holidayRows.map(({ day, departmentId }) => ({
         day,
         departmentId,
@@ -185,6 +254,7 @@ export async function loadAttendance(
       employeeNumber: employee.employeeNumber,
       name: `${employee.givenNames} ${employee.familyNames}`,
       hiredOn: employee.hiredOn.toISOString().slice(0, 10),
+      countsFrom: measuredFrom(employee),
       branch: employee.branch,
       dailyWageCents: employee.dailyWageCents,
       hasFace: employee.faceTemplates.length > 0,
@@ -195,7 +265,7 @@ export async function loadAttendance(
       },
       input: {
         departmentId: employee.department?.id ?? null,
-        hiredOn: employee.hiredOn.toISOString().slice(0, 10),
+        countsFrom: measuredFrom(employee),
         events: byEmployee.get(employee.id) ?? [],
         schedule: employee.department && {
           departmentName: employee.department.name,
