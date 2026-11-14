@@ -51,7 +51,7 @@ const employee = (
 ): KpiEmployeeInput => ({
   departmentId: 'd1',
   schedule: office,
-  hiredOn: '2026-01-01',
+  countsFrom: '2026-01-01',
   events,
   ...overrides,
 });
@@ -154,7 +154,7 @@ describe('Asistencia, puntualidad y faltas', () => {
 
   it('no cuenta días antes del ingreso', () => {
     const { values } = computeKpis(
-      employee([], { hiredOn: '2026-11-05' }),
+      employee([], { countsFrom: '2026-11-05' }),
       week,
       context(),
     );
@@ -262,7 +262,7 @@ describe('Factor Bradford y semáforos', () => {
         ev('EXIT', day, '18:00'),
       ]);
     const ctx = context({ now: at('2026-11-14', '12:00') });
-    const lastYear = { hiredOn: '2026-11-02' };
+    const lastYear = { countsFrom: '2026-11-02' };
     // Semanas del 2 y del 9 de noviembre: 10 días laborables.
     const allDays = Array.from({ length: 12 }, (_, i) =>
       addDays('2026-11-02', i),
@@ -296,7 +296,11 @@ describe('Factor Bradford y semáforos', () => {
       ev('ENTRY', '2026-11-10', '09:00'),
     ];
     expect(
-      bradford(employee(events, { hiredOn: '2026-11-05' }), '2026-11-11', ctx),
+      bradford(
+        employee(events, { countsFrom: '2026-11-05' }),
+        '2026-11-11',
+        ctx,
+      ),
     ).toEqual({
       spells: 1,
       days: 2,

@@ -233,6 +233,10 @@ beforeAll(async () => {
     })
     .expect(201);
   await asOwner(companyA, async (tx) => {
+    // Registrados antes de la semana de checadas: si no, esos días no se miden.
+    await tx.employee.updateMany({
+      data: { createdAt: new Date(`${week.start}T06:00:00Z`) },
+    });
     tabletId = (
       await tx.tablet.create({
         data: {

@@ -50,7 +50,8 @@ export function servePanel(app: INestApplication, dir: string): void {
       next();
       return;
     }
+    // Sin `cacheControl: false`, sendFile cambia el encabezado por el suyo.
     res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(index);
+    res.sendFile(index, { cacheControl: false });
   });
 }
