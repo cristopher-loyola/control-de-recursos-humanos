@@ -38,8 +38,11 @@ export interface KpiEvent {
 export interface KpiEmployeeInput {
   departmentId: string | null;
   schedule: KpiSchedule | null;
-  /** AAAA-MM-DD */
-  hiredOn: string;
+  /**
+   * Primer día que se mide (AAAA-MM-DD): antes no hay asistencia ni faltas.
+   * Lo calcula `loadAttendance` (ver `countsFrom` en attendance-data.ts).
+   */
+  countsFrom: string;
   events: KpiEvent[];
 }
 
@@ -199,7 +202,8 @@ export function computeKpis(
   const days: KpiDay[] = [];
   const scheduledDays = new Set<string>();
   if (schedule) {
-    const from = input.hiredOn > period.start ? input.hiredOn : period.start;
+    const from =
+      input.countsFrom > period.start ? input.countsFrom : period.start;
     for (
       let day = from;
       day < period.end && day <= today.day;

@@ -45,6 +45,7 @@ let runtime: pg.Client;
 let companyA: string;
 let companyB: string;
 let rhA: string;
+let adminA: string;
 let adminB: string;
 let employeeId: string;
 let departmentId: string;
@@ -178,7 +179,7 @@ beforeAll(async () => {
       adminPassword: PASSWORD,
     })
   ).companyId;
-  const adminA = await signIn(slugA, `admin@${slugA}.mx`);
+  adminA = await signIn(slugA, `admin@${slugA}.mx`);
   adminB = await signIn(slugB, `admin@${slugB}.mx`);
   branchId = (
     await as(adminA)
@@ -222,6 +223,10 @@ beforeAll(async () => {
       .expect(201)
   ).body.id;
   await asOwner(companyA, async (tx) => {
+    // Registrados antes de la semana de checadas: si no, esos días no se miden.
+    await tx.employee.updateMany({
+      data: { createdAt: new Date(`${week.start}T06:00:00Z`) },
+    });
     tabletId = (
       await tx.tablet.create({
         data: {
@@ -396,6 +401,47 @@ describe('KPIs de empleado', () => {
       'absent',
       'absent',
     ]);
+  });
+
+  it('no cuenta faltas en una sucursal que todavía no checa', async () => {
+    const otherBranch = (
+      await as(adminA)
+        .post('/api/branches')
+        .send({ code: 'NORTE', name: 'Norte' })
+        .expect(201)
+    ).body.id;
+    const zoe = (
+      await as(rhA)
+        .post('/api/employees')
+        .send({
+          branchId: otherBranch,
+          departmentId,
+          givenNames: 'Zoe',
+          familyNames: 'Zapata',
+          hiredOn: week.start,
+        })
+        .expect(201)
+    ).body.id;
+    await asOwner(companyA, (tx) =>
+      tx.employee.update({
+        where: { id: zoe },
+        data: { createdAt: new Date(`${week.start}T06:00:00Z`) },
+      }),
+    );
+    const board = await as(rhA)
+      .get(`/api/kpis/employees?period=week&anchor=${day(2)}`)
+      .expect(200);
+    const row = board.body.rows.find(
+      (r: { employee: { id: string } }) => r.employee.id === zoe,
+    );
+    expect(row.values).toMatchObject({ scheduledDays: 0, absences: 0 });
+    expect(row.bradford).toMatchObject({ spells: 0, days: 0, score: 0 });
+    await asOwner(companyA, (tx) =>
+      tx.employee.update({
+        where: { id: zoe },
+        data: { employmentStatus: 'TERMINATED' },
+      }),
+    );
   });
 
   it('las metas cambian el semáforo y solo se guardan valores válidos', async () => {
